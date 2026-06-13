@@ -1,7 +1,12 @@
 # -*- coding: utf-8 -*-
 from flask import Flask, request, jsonify, send_file, send_from_directory
 import os
+import sys
 import datetime
+
+# backendディレクトリをインポート検索パスに追加
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
 from database import init_db, save_spot, get_all_spots, find_closest_jurisdiction
 from pdf_generator import generate_request_pdf
 
