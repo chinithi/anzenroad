@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AnzenRoad (アンゼンロード) | 危険箇所要望書自動作成システム</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;700&family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+    <!-- 背景用の光彩デザイン要素（グラデーション装飾） -->
+    <div class="glow-bg glow-1"></div>
+    <div class="glow-bg glow-2"></div>
+
+    <!-- アプリケーションの全体コンテナ -->
+    <div class="app-container">
+        <!-- ヘッダーエリア（ロゴおよび進捗インジケーター） -->
+        <header class="app-header">
+            <div class="logo-area">
+                <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                    <line x1="12" y1="9" x2="12" y2="13"/>
+                    <line x1="12" y1="17" x2="12.01" y2="17"/>
+                </svg>
+                <div class="logo-text">
+                    <h1>AnzenRoad</h1>
+                    <span class="logo-tagline">アンゼンロード</span>
+                </div>
+            </div>
+            
+            <!-- Step Progress Indicator -->
+            <div class="step-progress">
+                <div class="step-progress-item active" id="progress-step-1">
+                    <span class="step-num">1</span>
+                    <span class="step-label">位置選択</span>
+                </div>
+                <div class="step-line" id="line-step-1"></div>
+                <div class="step-progress-item" id="progress-step-2">
+                    <span class="step-num">2</span>
+                    <span class="step-label">状況入力</span>
+                </div>
+                <div class="step-line" id="line-step-2"></div>
+                <div class="step-progress-item" id="progress-step-3">
+                    <span class="step-num">3</span>
+                    <span class="step-label">プレビュー</span>
+                </div>
+                <div class="step-line" id="line-step-3"></div>
+                <div class="step-progress-item" id="progress-step-4">
+                    <span class="step-num">4</span>
+                    <span class="step-label">完了・案内</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Body Grid -->
+        <main class="app-main">
+            <!-- Map Card Panel (Left/Top) -->
+            <section class="panel-map glass-card">
+                <div class="panel-header">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/>
+                        <line x1="9" y1="3" x2="9" y2="18"/>
+                        <line x1="15" y1="6" x2="15" y2="21"/>
+                    </svg>
+                    <h2>危険箇所マップ</h2>
+                </div>
+                <div class="map-wrapper">
+                    <div id="map"></div>
+                    <button class="btn-gps" id="btn-gps" title="現在地を取得">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="10"/>
+                            <circle cx="12" cy="12" r="3"/>
+                            <line x1="12" y1="1" x2="12" y2="3"/>
+                            <line x1="12" y1="21" x2="12" y2="23"/>
+                            <line x1="1" y1="12" x2="3" y2="12"/>
+                            <line x1="21" y1="12" x2="23" y2="12"/>
+                        </svg>
+                    </button>
+                </div>
+                <div class="map-footer">
+                    <span class="coordinates-info" id="coordinates-info">緯度経度: 地図上をクリックして指定してください</span>
+                </div>
+            </section>
+
+            <!-- Form Wizard Panel (Right/Bottom) -->
+            <section class="panel-form glass-card">
+                <form id="wizard-form" onsubmit="event.preventDefault();">
+                    
+                    <!-- STEP 1: 地図上での危険箇所指定および宛先選択 -->
+                    <div class="wizard-step active" id="step-1">
+                        <div class="step-header">
+                            <span class="badge">STEP 1</span>
+                            <h2>要望箇所を指定する</h2>
+                        </div>
+                        <p class="step-desc">地図をクリックするか、GPSボタンを押して危険な場所をピンで指し示してください。ドラッグで微調整できます。</p>
+                        
+                        <div class="form-group">
+                            <label for="display-address">検出された住所</label>
+                            <div class="input-with-icon">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="field-icon">
+                                    <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
+                                    <circle cx="12" cy="10" r="3"/>
+                                </svg>
+                                <input type="text" id="display-address" placeholder="地図から位置を選択すると自動取得されます (手入力可)">
+                            </div>
+                            <p class="info-text-small" style="margin-top: 4px; margin-bottom: 0; opacity: 0.8;">※自動取得された住所が異なる場合は、直接書き換えて修正できます。</p>
+                        </div>
+
+                        <div class="form-group">
+                            <label>提出先（要望書作成の宛先）</label>
+                            <p class="info-text-small">提出先に応じて、要望書の文面やフォーマットが自動的に適正化されます。</p>
+                            <div class="target-options">
+                                <label class="target-option-card">
+                                    <input type="radio" name="target_type" value="mayor" checked>
+                                    <div class="option-content">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+                                            <polyline points="9 22 9 12 15 12 15 22"/>
+                                        </svg>
+                                        <div>
+                                            <span class="option-title">自治体（区長・市長宛て）</span>
+                                            <span class="option-desc">道路の凹凸、街路樹、歩道の補修、カーブミラーなど</span>
+                                        </div>
+                                    </div>
+                                </label>
+                                <label class="target-option-card">
+                                    <input type="radio" name="target_type" value="police">
+                                    <div class="option-content">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                                            <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+                                            <line x1="12" y1="22" x2="12" y2="12"/>
+                                        </svg>
+                                        <div>
+                                            <span class="option-title">警察署（警察署長宛て）</span>
+                                            <span class="option-desc">信号機の設置、横断歩道の設置、速度取り締まり要望など</span>
+                                        </div>
+                                    </div>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="step-actions">
+                            <button type="button" class="btn btn-primary" id="btn-goto-step-2" disabled>
+                                状況入力へ進む
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="btn-arrow">
+                                    <line x1="5" y1="12" x2="19" y2="12"/>
+                                    <polyline points="12 5 19 12 12 19"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- STEP 2: 危険箇所のカテゴリ・レベル・詳細説明・写真の入力 -->
+                    <div class="wizard-step" id="step-2">
+                        <div class="step-header">
+                            <span class="badge">STEP 2</span>
+                            <h2>危険箇所の状況を入力する</h2>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="danger_category">最も当てはまる危険カテゴリ</label>
+                            <select id="danger_category" required>
+                                <option value="" disabled selected>選択してください</option>
+                                <option value="poor_visibility">見通しが悪い（遮蔽物・カーブミラー不良など）</option>
+                                <option value="heavy_traffic">交通量が多い（抜け道・スクールゾーンなど）</option>
+                                <option value="speeding">スピード超過（車両の速度出しすぎ）</option>
+                                <option value="no_sidewalk">歩道がない（白線のみ・幅員狭小など）</option>
+                                <option value="no_light">信号・横断歩道がない</option>
+                                <option value="other">その他安全上の懸念事項</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label>危険度評価</label>
+                            <div class="star-rating">
+                                <input type="radio" id="star5" name="danger_level" value="5"><label for="star5" title="極めて危険 (事故頻発・即時改善要)">★</label>
+                                <input type="radio" id="star4" name="danger_level" value="4"><label for="star4" title="非常に危険 (ヒヤリハット多数)">★</label>
+                                <input type="radio" id="star3" name="danger_level" value="3" checked><label for="star3" title="危険 (安全対策が必要)">★</label>
+                                <input type="radio" id="star2" name="danger_level" value="2"><label for="star2" title="やや危険 (一部に不安あり)">★</label>
+                                <input type="radio" id="star1" name="danger_level" value="1"><label for="star1" title="注意 (懸念される要素あり)">★</label>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="description">具体的な状況・改善要望（任意）</label>
+                            <p class="info-text-small">「朝の通学時間帯にスピードを出す車が多い」「生垣で見えなくなっている」等、具体的であるほど行政が動きやすくなります。</p>
+                            <textarea id="description" rows="4" placeholder="（例）見通しが悪く、カーブミラーも曇っているため右折車と直進車の接触が頻発しています。安全ミラーの補修をお願いします。"></textarea>
+                        </div>
+
+                        <div class="form-group">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                <label style="margin-bottom: 0;">現況写真の添付（推奨）</label>
+                                <div class="photo-btn-group" style="display: flex; gap: 8px;">
+                                    <button type="button" class="btn-sm-action" id="btn-trigger-camera" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; color: var(--text-primary); cursor: pointer; transition: all 0.2s;">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px; height:12px;">
+                                            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                                            <circle cx="12" cy="13" r="4"/>
+                                        </svg>
+                                        カメラ起動
+                                    </button>
+                                    <button type="button" class="btn-sm-action hidden" id="btn-trigger-blur" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px; background: rgba(6, 182, 212, 0.15); border: 1px solid rgba(6, 182, 212, 0.25); border-radius: 6px; color: var(--accent); cursor: pointer; transition: all 0.2s;">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px; height:12px;">
+                                            <path d="M12 20h9"/>
+                                            <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+                                        </svg>
+                                        個人情報をぼかす
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="photo-dropzone" id="photo-dropzone">
+                                <input type="file" id="photo-input" accept="image/*" style="display: none;">
+                                <div class="dropzone-prompt" id="dropzone-prompt">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                                        <circle cx="8.5" cy="8.5" r="1.5"/>
+                                        <polyline points="21 15 16 10 5 21"/>
+                                    </svg>
+                                    <span>写真をドラッグ＆ドロップ、またはクリックして選択</span>
+                                    <span class="subtext">スマートフォンならその場で撮影も可能です</span>
+                                </div>
+                                <div class="dropzone-preview hidden" id="dropzone-preview">
+                                    <img src="" alt="添付画像プレビュー" id="preview-img">
+                                    <button type="button" class="btn-remove-photo" id="btn-remove-photo" title="写真を削除">×</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="step-actions">
+                            <button type="button" class="btn btn-secondary" id="btn-back-to-step-1">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="btn-arrow-back">
+                                    <line x1="19" y1="12" x2="5" y2="12"/>
+                                    <polyline points="12 19 5 12 12 5"/>
+                                </svg>
+                                位置選択へ戻る
+                            </button>
+                            <button type="button" class="btn btn-primary" id="btn-goto-step-3">
+                                プレビューへ進む
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="btn-arrow">
+                                    <line x1="5" y1="12" x2="19" y2="12"/>
+                                    <polyline points="12 5 19 12 12 19"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- STEP 3: 要望者の連絡先入力およびPDFプレビュー生成表示 -->
+                    <div class="wizard-step" id="step-3">
+                        <div class="step-header">
+                            <span class="badge">STEP 3</span>
+                            <h2>要望書を生成・確認する</h2>
+                        </div>
+                        <p class="step-desc">行政へ正式に提出するため、要望者（あなた）の連絡先を入力してください。これらは印刷用PDFにのみ反映され、無関係に収集されることはありません。</p>
+
+                        <div class="form-group row">
+                            <div class="col">
+                                <label for="requester_name">要望者 氏名</label>
+                                <input type="text" id="requester_name" placeholder="例）山田 太郎" required>
+                            </div>
+                            <div class="col">
+                                <label for="requester_phone">連絡先 電話番号</label>
+                                <input type="tel" id="requester_phone" placeholder="例）090-1234-5678" required>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="requester_address">要望者 住所</label>
+                            <input type="text" id="requester_address" placeholder="例）東京都新宿区西新宿6丁目..." required>
+                        </div>
+
+                        <!-- Realtime Jurisdictions Mapping preview -->
+                        <div class="jurisdiction-preview-box" id="jurisdiction-preview-box">
+                            <span class="box-label">割り出された管轄の送付・相談先</span>
+                            <div class="box-content">
+                                <div class="jurisdiction-badge" id="j-badge">自治体窓口</div>
+                                <h4 id="j-name">新宿区役所 道路課</h4>
+                                <p id="j-address">東京都新宿区歌舞伎町1-4-1</p>
+                            </div>
+                        </div>
+
+                        <div class="pdf-preview-container">
+                            <button type="button" class="btn btn-accent w-full" id="btn-preview-pdf">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                    <polyline points="14 2 14 8 20 8"/>
+                                    <line x1="16" y1="13" x2="8" y2="13"/>
+                                    <line x1="16" y1="17" x2="8" y2="17"/>
+                                    <polyline points="10 9 9 9 8 9"/>
+                                </svg>
+                                要望書PDFをプレビュー生成する
+                            </button>
+                            
+                            <div class="pdf-frame-wrapper hidden" id="pdf-frame-wrapper">
+                                <iframe id="pdf-preview-iframe" src=""></iframe>
+                                <div class="pdf-loading-overlay hidden" id="pdf-loading-overlay">
+                                    <div class="spinner"></div>
+                                    <span>要望書PDFを作成中...</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="step-actions">
+                            <button type="button" class="btn btn-secondary" id="btn-back-to-step-2">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="btn-arrow-back">
+                                    <line x1="19" y1="12" x2="5" y2="12"/>
+                                    <polyline points="12 19 5 12 12 5"/>
+                                </svg>
+                                状況入力へ戻る
+                            </button>
+                            <button type="button" class="btn btn-success" id="btn-finalize">
+                                作成を完了する
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="btn-arrow">
+                                    <polyline points="20 6 9 17 4 12"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- STEP 4: 生成完了通知および提出先ナビゲーション案内 -->
+                    <div class="wizard-step" id="step-4">
+                        <div class="success-animation">
+                            <div class="success-icon-wrapper">
+                                <svg class="success-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                                    <polyline points="20 6 9 17 4 12"/>
+                                </svg>
+                            </div>
+                            <h2>要望書の作成が完了しました！</h2>
+                            <p>ご記入内容を反映した正式な要望書PDFが完成しました。</p>
+                        </div>
+
+                        <!-- Submission target details cards -->
+                        <div class="submission-guide-card">
+                            <h3>📬 提出先のご案内</h3>
+                            <div class="guide-item">
+                                <span class="guide-label">窓口名称:</span>
+                                <strong id="guide-j-name">新宿区役所 道路課</strong>
+                            </div>
+                            <div class="guide-item">
+                                <span class="guide-label">送付先住所:</span>
+                                <span id="guide-j-address">東京都新宿区歌舞伎町1-4-1</span>
+                            </div>
+                            <div class="guide-item">
+                                <span class="guide-label">電話番号:</span>
+                                <span id="guide-j-phone">03-3209-1111</span>
+                            </div>
+                            <div class="guide-item" id="guide-url-wrapper">
+                                <span class="guide-label">オンライン窓口:</span>
+                                <a href="#" id="guide-j-url" target="_blank" rel="noopener">ホームページを開く ↗</a>
+                            </div>
+                        </div>
+
+                        <div class="submission-method-box">
+                            <h4>📄 提出方法のステップ</h4>
+                            <ol>
+                                <li><strong>PDFのダウンロード：</strong> 下記ボタンから要望書PDFをダウンロードし、A4用紙で印刷します（モノクロで問題ありません）。</li>
+                                <li><strong>押印（任意）：</strong> 要望者氏名欄の「印」マーク部分に認印などを押すと、より丁寧な書類になります。</li>
+                                <li><strong>提出：</strong> 記載の窓口に郵送するか、直接持参してご相談ください。</li>
+                            </ol>
+                        </div>
+
+                        <!-- Action Buttons -->
+                        <div class="completion-actions">
+                            <button type="button" class="btn btn-primary btn-lg w-full" id="btn-download-pdf-final">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                    <polyline points="7 10 12 15 17 10"/>
+                                    <line x1="12" y1="15" x2="12" y2="3"/>
+                                </svg>
+                                要望書PDFをダウンロード
+                            </button>
+                            
+                            <button type="button" class="btn btn-secondary w-full" id="btn-restart">
+                                新しく別の要望書を作成する
+                            </button>
+                        </div>
+                    </div>
+
+                </form>
+            </section>
+        </main>
+    </div>
+
+    <!-- Webcam Modal -->
+    <div class="modal-overlay hidden" id="modal-webcam">
+        <div class="modal-card glass-card">
+            <div class="modal-header">
+                <h3>カメラ撮影</h3>
+                <button type="button" class="modal-close" id="btn-close-webcam">&times;</button>
+            </div>
+            <div class="webcam-container">
+                <video id="webcam-video" autoplay playsinline></video>
+                <canvas id="webcam-canvas" class="hidden"></canvas>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-secondary" id="btn-switch-camera" style="padding: 8px 16px; font-size: 13px;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px; height:14px; display:inline-block; vertical-align:middle; margin-right:4px;">
+                        <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+                    </svg>カメラ切替
+                </button>
+                <button type="button" class="btn btn-primary" id="btn-capture-webcam" style="padding: 8px 16px; font-size: 13px;">撮影する</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Blur Editor Modal -->
+    <div class="modal-overlay hidden" id="modal-blur">
+        <div class="modal-card glass-card editor-card">
+            <div class="modal-header">
+                <h3>ぼかし・モザイク編集</h3>
+                <button type="button" class="modal-close" id="btn-close-blur">&times;</button>
+            </div>
+            <p class="editor-help-text" style="font-size: 11px; color: var(--text-secondary); margin-bottom: 12px;">指やマウスで車のナンバー、人の顔、表札などをなぞると、その部分にぼかしがかかります。</p>
+            <div class="editor-canvas-container">
+                <canvas id="editor-canvas"></canvas>
+            </div>
+            <div class="editor-controls" style="margin-top: 14px;">
+                <div class="control-group" style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+                    <label for="brush-size" style="margin-bottom:0; font-size:12px; flex-shrink:0;">なぞる太さ: <span id="brush-size-val">30</span>px</label>
+                    <input type="range" id="brush-size" min="10" max="80" value="30" style="width:100%; cursor:pointer;">
+                </div>
+            </div>
+            <div class="modal-actions" style="margin-top: 18px; display:flex; justify-content:flex-end; gap:10px;">
+                <button type="button" class="btn btn-secondary" id="btn-reset-blur" style="padding: 8px 16px; font-size: 13px;">最初からやり直す</button>
+                <button type="button" class="btn btn-success" id="btn-save-blur" style="padding: 8px 16px; font-size: 13px;">完了して適用</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <!-- App Javascript -->
+    <script src="/js/app.js"></script>
+</body>
+</html>

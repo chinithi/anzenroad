@@ -1,0 +1,24 @@
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+ENV/
+env/
+
+# Flask & ReportLab dynamically generated files
+backend/data/anzenroad.db
+backend/data/uploads/*
+backend/data/maps/*
+backend/data/fonts/*
+backend/data/request_*.pdf
+backend/data/*.pdf
+
+# IDE and OS files
+.vscode/
+.idea/
+Thumbs.db
+ehthumbs.db
+Desktop.ini

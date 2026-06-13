@@ -1,0 +1,112 @@
+11:02 2026/06/13
+
+外でもみれるように、githubを使おうと思うけどどうしたらいい？
+
+外（モバイル回線や別の場所のWi-Fi）からこのアプリを使えるようにするために、GitHubを利用するのは素晴らしいアプローチです！
+
+ただし、1点重要な仕様の違いがあります。
+
+GitHub単体（GitHub Pages）では動きません
+GitHub Pagesは「静的なHTML/CSS/JS」しか動かせないため、Python（Flask）やデータベース（SQLite）などのサーバーサイドプログラムを動かすことができません。
+正しい構成：GitHub ➔ クラウドサーバーへのデプロイ
+コードを GitHub にアップロードし、そこから Render.com などの無料のPythonクラウドサーバーに連携して自動公開（デプロイ）させる方法が、現代の最も標準的な手法です。
+本日、デプロイがすぐに行えるように、PC内のプロジェクトに必要な2つの設定ファイルを私の方で作成・更新しました。
+
+.gitignore
+ の新規作成: データベースやアップロード写真、PDFなどの個人情報・一時ファイルをGitHub上に公開しないための除外ファイル。
+requirements.txt
+ に gunicorn を追加: クラウドの本番環境でFlaskを安定稼働させるためのWebサーバー用パッケージ。
+以下に、GitHubへのアップロードからクラウドでの完全無料公開までの3ステップを分かりやすく解説します。
+
+階層ステップ1：Gitでローカルコミットを作成する
+PCでPowerShellなどのターミナルを開き、以下のコマンドを順番に実行してプロジェクトをGit管理下に置きます。
+
+powershell
+
+
+# 1. プロジェクトのディレクトリに移動
+cd C:\Users\Owner\.gemini\antigravity\scratch\anzenroad
+# 2. Gitの初期化
+git init
+# 3. ファイルをステージングに追加 (.gitignoreによりDBや写真は除外されます)
+git add .
+# 4. コミットを作成
+git commit -m "Initial commit with camera and blur features"
+階層ステップ2：GitHubにリポジトリを作成してプッシュする
+ブラウザで GitHub にログインし、右上プラス「＋」ボタンから 「New repository」 を作成します。
+Repository name: anzenroad
+Public/Private: 要望書データやテスト個人情報を非公開にしたい場合は 「Private」 を推奨します。
+その他（READMEの追加など）はすべてチェックを入れずに「Create repository」を押します。
+作成後に表示されるコマンド群のうち、「…or push an existing repository from the command line」 にあるコマンドをコピーしてPCのターミナルに貼り付け実行します：
+powershell
+
+
+# ※「YOUR_USERNAME」部分はご自身のGitHubユーザー名になります
+git remote add origin https://github.com/YOUR_USERNAME/anzenroad.git
+git branch -M main
+git push -u origin main
+これでGitHubへのコード保存が完了しました。
+
+階層ステップ3：Render.com で無料公開する
+GitHubと連携して、わずか数分でPythonアプリを世界中に公開できる 「Render」 という無料クラウドサービスを使用します。
+
+Render.com にアクセスし、「Sign Up」 から「GitHub」を選択してログイン（連携許可）します。
+ログイン後、ダッシュボードの 「New」ボタン ➔ 「Web Service」 をクリックします。
+「Connect a repository」 のリストに、先ほどGitHubに上げた anzenroad リポジトリが表示されるので、「Connect」 を押します。
+設定画面が開くので、以下のように入力します：
+Name: anzenroad （任意の英数字）
+Region: Singapore （日本から最も近いアジア地域）
+Branch: main
+Runtime: Python
+Build Command: pip install -r requirements.txt
+Start Command: gunicorn --bind 0.0.0.0:$PORT --chdir backend app:app
+Instance Type: 「Free」 （無料プランを選択）
+最下部の 「Deploy Web Service」 をクリックします。
+数分でビルド（環境構築）が走り、画面左上に https://anzenroad.onrender.com のような公開用URLが発行されます。
+
+このURLを開けば、外でもスマートフォン（4G/5G回線）やタブレットから完全にアプリへアクセスでき、現場で写真を撮ってその場で要望書PDFを作成・ダウンロードできるようになります！
+
+まずはステップ1〜2のGitHubへのアップロードをお試しください。何かエラーや分からない箇所がございましたら、いつでもサポートいたします。
+
+10:05, 2026/6/12
+
+
+
+他の方法はない？
+10:52
+
+
+GitHubやクラウドサーバーを使わずに、PCで動いているアプリをそのまま外のスマホからアクセスできるようにする簡単な方法が他にあります。
+
+特にWindows10/11には標準で ssh コマンドが備わっているため、会員登録もソフトのインストールも一切不要で、コマンドを1行実行するだけで一時的な公開URLを発行できる方法があります。
+
+💡 方法A：SSHトンネルを使う（最も簡単・登録＆インストール不要）
+localhost.run という無料のトンネリングサービスと、Windows標準のSSH機能を利用します。
+
+手順：
+現在、PC側でアプリ（Flaskサーバー）が起動している状態にします（※バックグラウンドで既に起動中です）。
+PCで新しく別の「PowerShell」または「コマンドプロンプト」を開きます。
+以下のコマンドを入力して Enterキー を押します：
+powershell
+
+
+ssh -R 80:localhost:5000 nokey@localhost.run
+最初だけ Are you sure you want to continue connecting (yes/no/[fingerprint])? と聞かれるので、yes と入力して Enterキー を押します。
+接続が完了すると、画面に以下のようなアドレスが表示されます：
+text
+
+
+Active Tunnel: https://xxxxxx.lhr.life
+この https://〜.lhr.life のアドレスを、外にいるスマホのブラウザに入力するだけで、PCで動いているアプリに安全に接続できます。
+NOTE
+
+注意点: PCがスリープしたり、コマンドを実行している黒い画面（SSH）を閉じると接続できなくなります。一時的な動作確認やデモに最適です。
+💡 方法B：Tailscaleを使う（安全・プライベートな個人接続）
+「外部の人にURLを教える必要はなく、自分だけが外から安全に接続したい」という場合は、Tailscale（テールスケール） という無料のプライベートVPNサービスを使用するのが最適です。
+
+手順：
+PCに Tailscale をインストールしてログインします。
+スマートフォンにも「Tailscale」アプリをインストールし、同じアカウントでログインします。
+Tailscaleの画面上に、お使いのPC用の専用IPアドレス（例: 100.80.90.100）が表示されます。
+スマホでTailscaleを「ON」にした状態であれば、キャリア回線（4G/5G）からでも http://[PCのTailscale用IPアドレス]:5000/ と入力するだけで、完全にプライベートで安全な接続が可能です。
+まずは、最も手軽な 「方法A（SSHトンネル）」 をPCのPowerShellで試してみてください。1行のコマンドだけでスマホからアクセスできるようになります！
