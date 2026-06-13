@@ -18,7 +18,12 @@ os.makedirs(FONTS_DIR, exist_ok=True)
 # -------------------------------------------------------------------------
 # 日本語フォント登録処理
 # -------------------------------------------------------------------------
+IS_FONT_REGISTERED = False
+
 def register_japanese_font():
+    global IS_FONT_REGISTERED
+    if IS_FONT_REGISTERED:
+        return
     """
     ReportLab PDFエンジンで日本語を表示可能にするため、フォントを検索・登録する関数。
     1. Windowsシステム標準フォント(MSゴシック, MS明朝, メイリオ)を優先的に探索
@@ -69,9 +74,9 @@ def register_japanese_font():
                 
     if not registered:
         print("WARNING: No Japanese font registered. PDF may contain gibberish.")
-
-# フォントの初期登録実行
-register_japanese_font()
+        
+    # 登録の成否にかかわらず、処理完了フラグを立てて二重処理を防ぎます
+    IS_FONT_REGISTERED = True
 
 # -------------------------------------------------------------------------
 # 要望理由の自動翻訳マッピング定義
@@ -239,6 +244,9 @@ def generate_request_pdf(data):
       - photo_path: (任意) ぼかし適用済みの現況写真のパス
     - 戻り値: 生成されたPDFファイルのパス
     """
+    # 起動時の遅延を防ぐため、PDF生成要求があった時点で初めてフォント登録を行います（初回のみ実行）
+    register_japanese_font()
+
     pdf_filename = f"request_{int(math.fabs(data.get('latitude', 0)) * 100000)}_{int(math.fabs(data.get('longitude', 0)) * 100000)}.pdf"
     pdf_path = os.path.join(DATA_DIR, pdf_filename)
     
