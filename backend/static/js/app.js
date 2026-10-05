@@ -96,6 +96,7 @@ const btnZoomIn = document.getElementById('btn-zoom-in');
 const btnZoomOut = document.getElementById('btn-zoom-out');
 const btnZoomReset = document.getElementById('btn-zoom-reset');
 const zoomLevelText = document.getElementById('zoom-level-text');
+const zoomRange = document.getElementById('zoom-range');
 
 // Global state for camera/editor
 let webcamStream = null;
@@ -108,6 +109,8 @@ let currentBlurPhotoIndex = null;
 let currentZoom = 1.0;
 let editorCanvasOriginalWidth = 0;
 let editorCanvasOriginalHeight = 0;
+let baseDisplayWidth = 0;
+let baseDisplayHeight = 0;
 
 // Initialize the Application
 window.addEventListener('DOMContentLoaded', () => {
@@ -505,9 +508,33 @@ function setupEventListeners() {
     });
 
     // Blur Zoom Events
-    if (btnZoomIn) btnZoomIn.addEventListener('click', () => adjustZoom(0.25));
-    if (btnZoomOut) btnZoomOut.addEventListener('click', () => adjustZoom(-0.25));
-    if (btnZoomReset) btnZoomReset.addEventListener('click', () => resetZoom());
+    if (btnZoomIn) {
+        btnZoomIn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            adjustZoom(0.25);
+        });
+    }
+    if (btnZoomOut) {
+        btnZoomOut.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            adjustZoom(-0.25);
+        });
+    }
+    if (btnZoomReset) {
+        btnZoomReset.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            resetZoom();
+        });
+    }
+    if (zoomRange) {
+        zoomRange.addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value) / 100;
+            setZoom(val);
+        });
+    }
 
     // Canvas drawing setup
     setupEditorCanvasDrawing();
@@ -1324,6 +1351,9 @@ function captureWebcamPhoto() {
 /**
  * ぼかし編集モーダルを開き、選択された写真をCanvas上に準備する関数
  */
+/**
+ * ぼかし編集モーダルを開き、選択された写真をCanvas上に準備する関数
+ */
 function openBlurEditor(photoIndex) {
     if (photoIndex === undefined || photoIndex < 0 || photoIndex >= uploadedPhotos.length) return;
     
@@ -1338,8 +1368,8 @@ function openBlurEditor(photoIndex) {
     img.crossOrigin = "anonymous";
     
     img.onload = () => {
-        // パフォーマンスおよび操作性の観点から、エディタ上での基準最大寸法を1000pxに設定
-        const maxDim = 1000;
+        // パフォーマンスおよび操作性の観点から、内部キャンバスの実ピクセル最大寸法を1200pxに設定
+        const maxDim = 1200;
         let w = img.width;
         let h = img.height;
         if (w > maxDim || h > maxDim) {
@@ -1370,16 +1400,34 @@ function openBlurEditor(photoIndex) {
         editorBlurredCanvas.width = w;
         editorBlurredCanvas.height = h;
         const bCtx = editorBlurredCanvas.getContext('2d');
-        bCtx.filter = 'blur(16px)'; // CSS Filterで16pxのガウスぼかしを適用
+        bCtx.filter = 'blur(16px)'; // ガウスぼかし
         bCtx.drawImage(img, 0, 0, w, h);
 
-        // ズームを100%等倍に初期化
-        currentZoom = 1.0;
-        updateCanvasZoomUI();
-        if (editorCanvasContainer) {
-            editorCanvasContainer.scrollTop = 0;
-            editorCanvasContainer.scrollLeft = 0;
-        }
+        // 表示コンテナの寸法に合わせて、画面にフィットする100%基準表示サイズ（Base Size）を計算
+        setTimeout(() => {
+            const containerW = editorCanvasContainer ? (editorCanvasContainer.clientWidth || 360) : 360;
+            const containerH = editorCanvasContainer ? (editorCanvasContainer.clientHeight || 320) : 320;
+            const availW = Math.max(containerW - 36, 260);
+            const availH = Math.max(containerH - 36, 220);
+            
+            let baseW = availW;
+            let baseH = Math.round(availW * (h / w));
+            if (baseH > availH) {
+                baseH = availH;
+                baseW = Math.round(availH * (w / h));
+            }
+            
+            baseDisplayWidth = baseW;
+            baseDisplayHeight = baseH;
+
+            // 初期ズームを100%等倍に初期化
+            currentZoom = 1.0;
+            updateCanvasZoomUI();
+            if (editorCanvasContainer) {
+                editorCanvasContainer.scrollTop = 0;
+                editorCanvasContainer.scrollLeft = 0;
+            }
+        }, 50);
     };
     
     img.src = photoItem.previewUrl;
@@ -1397,25 +1445,39 @@ function adjustZoom(delta) {
  */
 function resetZoom() {
     setZoom(1.0);
+    if (editorCanvasContainer) {
+        editorCanvasContainer.scrollTop = 0;
+        editorCanvasContainer.scrollLeft = 0;
+    }
 }
 
 /**
  * ズーム倍率を設定し、Canvas表示サイズとUI表示を更新
  */
 function setZoom(val) {
-    // 0.5倍(50%)〜3.0倍(300%)の範囲に制限
-    currentZoom = Math.min(Math.max(val, 0.5), 3.0);
-    currentZoom = Math.round(currentZoom * 100) / 100; // 小数点整理
+    // 1.0倍(100%)〜3.0倍(300%)の範囲に制限
+    currentZoom = Math.min(Math.max(val, 1.0), 3.0);
+    currentZoom = Math.round(currentZoom * 100) / 100;
     updateCanvasZoomUI();
 }
 
 function updateCanvasZoomUI() {
+    const pct = Math.round(currentZoom * 100);
     if (zoomLevelText) {
-        zoomLevelText.textContent = `${Math.round(currentZoom * 100)}%`;
+        zoomLevelText.textContent = `${pct}%`;
     }
-    if (editorCanvas && editorCanvasOriginalWidth > 0) {
-        editorCanvas.style.width = `${Math.round(editorCanvasOriginalWidth * currentZoom)}px`;
-        editorCanvas.style.height = `${Math.round(editorCanvasOriginalHeight * currentZoom)}px`;
+    if (zoomRange) {
+        zoomRange.value = pct;
+    }
+    if (editorCanvas && baseDisplayWidth > 0) {
+        const targetW = Math.round(baseDisplayWidth * currentZoom);
+        const targetH = Math.round(baseDisplayHeight * currentZoom);
+        editorCanvas.style.width = `${targetW}px`;
+        editorCanvas.style.height = `${targetH}px`;
+        editorCanvas.style.minWidth = `${targetW}px`;
+        editorCanvas.style.minHeight = `${targetH}px`;
+        editorCanvas.style.maxWidth = 'none';
+        editorCanvas.style.maxHeight = 'none';
     }
 }
 

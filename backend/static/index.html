@@ -457,21 +457,31 @@
             <p class="editor-help-text" style="font-size: 11px; color: var(--text-secondary); margin-bottom: 8px;">指やマウスで車のナンバー、人の顔、表札などをなぞると、その部分にぼかしがかかります。</p>
             
             <!-- 拡大・縮小（ズーム）ツールバー -->
-            <div class="editor-zoom-toolbar" style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; background: rgba(0, 0, 0, 0.25); padding: 6px 12px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.08);">
-                <div style="display: flex; align-items: center; gap: 6px;">
-                    <span style="font-size: 12px; font-weight: 600; color: var(--text-primary); display: flex; align-items: center; gap: 4px;">
-                        🔍 ズーム:
-                    </span>
-                    <button type="button" class="btn-zoom-step" id="btn-zoom-out" title="縮小" style="padding: 3px 10px; font-size: 14px; font-weight: bold; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); border-radius: 4px; color: var(--text-primary); cursor: pointer;">−</button>
-                    <span id="zoom-level-text" style="font-size: 12px; font-weight: 700; color: var(--accent); min-width: 44px; text-align: center;">100%</span>
-                    <button type="button" class="btn-zoom-step" id="btn-zoom-in" title="拡大" style="padding: 3px 10px; font-size: 14px; font-weight: bold; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); border-radius: 4px; color: var(--text-primary); cursor: pointer;">＋</button>
-                    <button type="button" class="btn-zoom-reset" id="btn-zoom-reset" style="padding: 3px 8px; font-size: 11px; background: transparent; border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; color: var(--text-secondary); cursor: pointer;">等倍に戻す</button>
+            <div class="editor-zoom-toolbar" style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; background: rgba(0, 0, 0, 0.35); padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.1);">
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                    <div style="display: flex; align-items: center; gap: 6px;">
+                        <span style="font-size: 12px; font-weight: 600; color: var(--text-primary);">
+                            🔍 ズーム:
+                        </span>
+                        <button type="button" class="btn-zoom-step" id="btn-zoom-out" title="縮小" style="padding: 2px 10px; font-size: 15px; font-weight: bold; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; color: #fff; cursor: pointer;">−</button>
+                        <span id="zoom-level-text" style="font-size: 13px; font-weight: 700; color: var(--accent); min-width: 46px; text-align: center;">100%</span>
+                        <button type="button" class="btn-zoom-step" id="btn-zoom-in" title="拡大" style="padding: 2px 10px; font-size: 15px; font-weight: bold; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; color: #fff; cursor: pointer;">＋</button>
+                        <button type="button" class="btn-zoom-reset" id="btn-zoom-reset" style="padding: 3px 8px; font-size: 11px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; color: var(--text-secondary); cursor: pointer;">等倍に戻す</button>
+                    </div>
                 </div>
-                <span class="zoom-guide-text" style="font-size: 11px; color: var(--text-secondary);">※拡大後はスワイプ/ドラッグでスクロールして細部をなぞれます</span>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <span style="font-size: 11px; color: var(--text-secondary); flex-shrink: 0;">倍率スライダー:</span>
+                    <input type="range" id="zoom-range" min="100" max="300" step="5" value="100" style="flex: 1; cursor: pointer; accent-color: var(--accent);">
+                </div>
+                <div style="font-size: 11px; color: var(--text-secondary); opacity: 0.85;">
+                    ※拡大後はキャンバス内をスクロールしてナンバーや顔を大きく表示・なぞれます
+                </div>
             </div>
 
-            <div class="editor-canvas-container" id="editor-canvas-container" style="overflow: auto; max-height: 55vh; max-width: 100%; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; background: #000; position: relative;">
-                <canvas id="editor-canvas" style="display: block; margin: 0 auto; touch-action: none; transform-origin: 0 0;"></canvas>
+            <div class="editor-canvas-container" id="editor-canvas-container">
+                <div class="editor-canvas-wrapper" id="editor-canvas-wrapper">
+                    <canvas id="editor-canvas"></canvas>
+                </div>
             </div>
             <div class="editor-controls" style="margin-top: 14px;">
                 <div class="control-group" style="display:flex; align-items:center; justify-content:space-between; gap:12px;">

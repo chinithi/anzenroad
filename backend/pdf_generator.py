@@ -368,27 +368,17 @@ def generate_request_pdf(data):
     story.append(Paragraph(data.get('date_str', '令和8年6月9日'), right_style))
     story.append(Spacer(1, 5))
     
-    # 3. 要望者（代表者）連絡先ブロックを追加（右端マージンに綺麗に寄せる）
+    # 3. 要望者（代表者）連絡先ブロックを追加（右端マージンに完全に右寄せ）
     req_name = data.get('requester_name', '（省略）')
     req_addr = data.get('requester_address', '（省略）')
     req_phone = data.get('requester_phone', '（省略）')
     
-    req_info_text = f"<b>要望者（代表者）:</b><br/>" \
-                    f"住所: {req_addr}<br/>" \
-                    f"氏名: {req_name} &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;印<br/>" \
-                    f"電話番号: {req_phone}"
+    req_info_text = f"<b>要望者（代表者）</b><br/>" \
+                    f"住所：{req_addr}<br/>" \
+                    f"氏名：{req_name}　　印<br/>" \
+                    f"電話番号：{req_phone}"
     
-    # 全幅 523ポイントの中で、右端に揃えるために左列を広げて右列を右端に配置
-    req_table_data = [
-        ["", Paragraph(req_info_text, normal_style)]
-    ]
-    req_table = Table(req_table_data, colWidths=[293, 230], hAlign='RIGHT')
-    req_table.setStyle(TableStyle([
-        ('VALIGN', (0,0), (-1,-1), 'TOP'),
-        ('PADDING', (0,0), (-1,-1), 0),
-        ('ALIGN', (0,0), (-1,-1), 'RIGHT'),
-    ]))
-    story.append(req_table)
+    story.append(Paragraph(req_info_text, right_style))
     story.append(Spacer(1, 15))
     
     # 4. 提出先（宛先）を追加
