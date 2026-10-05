@@ -4,7 +4,7 @@ let map;
 let marker;
 let selectedLatLng = null;
 let selectedAddress = "";
-let uploadedPhotoFile = null;
+let uploadedPhotos = []; // [{ id, file, previewUrl, isExisting, serverPath }]
 let generatedPdfBlobUrl = null;
 let currentClosestJurisdiction = null;
 let jurisdictionCandidates = [];
@@ -59,14 +59,14 @@ const coordinatesInfo = document.getElementById('coordinates-info');
 const displayAddress = document.getElementById('display-address');
 const btnGps = document.getElementById('btn-gps');
 
+// Photos Multiple Upload Elements
 const photoDropzone = document.getElementById('photo-dropzone');
 const photoInput = document.getElementById('photo-input');
 const dropzonePrompt = document.getElementById('dropzone-prompt');
-const dropzonePreview = document.getElementById('dropzone-preview');
-const previewImg = document.getElementById('preview-img');
-const btnRemovePhoto = document.getElementById('btn-remove-photo');
 const btnTriggerCamera = document.getElementById('btn-trigger-camera');
-const btnTriggerBlur = document.getElementById('btn-trigger-blur');
+const btnAddPhotoBrowse = document.getElementById('btn-add-photo-browse');
+const photosGalleryContainer = document.getElementById('photos-gallery-container');
+const photosGalleryGrid = document.getElementById('photos-gallery-grid');
 
 const btnPreviewPdf = document.getElementById('btn-preview-pdf');
 const pdfFrameWrapper = document.getElementById('pdf-frame-wrapper');
@@ -87,8 +87,15 @@ const btnCloseBlur = document.getElementById('btn-close-blur');
 const btnResetBlur = document.getElementById('btn-reset-blur');
 const btnSaveBlur = document.getElementById('btn-save-blur');
 const editorCanvas = document.getElementById('editor-canvas');
+const editorCanvasContainer = document.getElementById('editor-canvas-container');
 const brushSize = document.getElementById('brush-size');
 const brushSizeVal = document.getElementById('brush-size-val');
+
+// Zoom Elements in Blur Editor
+const btnZoomIn = document.getElementById('btn-zoom-in');
+const btnZoomOut = document.getElementById('btn-zoom-out');
+const btnZoomReset = document.getElementById('btn-zoom-reset');
+const zoomLevelText = document.getElementById('zoom-level-text');
 
 // Global state for camera/editor
 let webcamStream = null;
@@ -97,6 +104,10 @@ let editorOriginalImage = null;
 let editorBlurredCanvas = null;
 let editorCtx = null;
 let isDrawingOnEditor = false;
+let currentBlurPhotoIndex = null;
+let currentZoom = 1.0;
+let editorCanvasOriginalWidth = 0;
+let editorCanvasOriginalHeight = 0;
 
 // Initialize the Application
 window.addEventListener('DOMContentLoaded', () => {
@@ -443,42 +454,41 @@ function setupEventListeners() {
     if (savedPhone) document.getElementById('requester_phone').value = savedPhone;
     if (savedAddr) document.getElementById('requester_address').value = savedAddr;
 
-    // Dropzone Photo Upload
-    photoDropzone.addEventListener('click', () => photoInput.click());
+    // Photo Upload Triggers (複数写真対応)
+    if (photoDropzone) photoDropzone.addEventListener('click', () => photoInput.click());
+    if (btnAddPhotoBrowse) btnAddPhotoBrowse.addEventListener('click', () => photoInput.click());
     
     photoInput.addEventListener('change', (e) => {
-        if (e.target.files.length > 0) {
-            handlePhotoSelect(e.target.files[0]);
+        if (e.target.files && e.target.files.length > 0) {
+            handlePhotosSelect(e.target.files);
+            photoInput.value = ''; // 次回同じファイルを選んでも発火するようにリセット
         }
     });
 
     // Drag and drop event handlers
-    ['dragenter', 'dragover'].forEach(eventName => {
-        photoDropzone.addEventListener(eventName, (e) => {
-            e.preventDefault();
-            photoDropzone.classList.add('dragover');
-        }, false);
-    });
+    if (photoDropzone) {
+        ['dragenter', 'dragover'].forEach(eventName => {
+            photoDropzone.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                photoDropzone.classList.add('dragover');
+            }, false);
+        });
 
-    ['dragleave', 'drop'].forEach(eventName => {
-        photoDropzone.addEventListener(eventName, (e) => {
-            e.preventDefault();
-            photoDropzone.classList.remove('dragover');
-        }, false);
-    });
+        ['dragleave', 'drop'].forEach(eventName => {
+            photoDropzone.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                photoDropzone.classList.remove('dragover');
+            }, false);
+        });
 
-    photoDropzone.addEventListener('drop', (e) => {
-        const dt = e.dataTransfer;
-        const files = dt.files;
-        if (files.length > 0) {
-            handlePhotoSelect(files[0]);
-        }
-    });
-
-    btnRemovePhoto.addEventListener('click', (e) => {
-        e.stopPropagation(); // Avoid triggering dropzone click
-        removePhoto();
-    });
+        photoDropzone.addEventListener('drop', (e) => {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            if (files && files.length > 0) {
+                handlePhotosSelect(files);
+            }
+        });
+    }
 
     // Webcam Events
     btnTriggerCamera.addEventListener('click', openWebcam);
@@ -487,13 +497,17 @@ function setupEventListeners() {
     btnSwitchCamera.addEventListener('click', switchWebcam);
 
     // Blur Editor Events
-    btnTriggerBlur.addEventListener('click', openBlurEditor);
     btnCloseBlur.addEventListener('click', closeBlurEditor);
     btnResetBlur.addEventListener('click', resetBlurCanvas);
     btnSaveBlur.addEventListener('click', saveBlurCanvas);
     brushSize.addEventListener('input', (e) => {
         brushSizeVal.textContent = e.target.value;
     });
+
+    // Blur Zoom Events
+    if (btnZoomIn) btnZoomIn.addEventListener('click', () => adjustZoom(0.25));
+    if (btnZoomOut) btnZoomOut.addEventListener('click', () => adjustZoom(-0.25));
+    if (btnZoomReset) btnZoomReset.addEventListener('click', () => resetZoom());
 
     // Canvas drawing setup
     setupEditorCanvasDrawing();
@@ -531,32 +545,95 @@ function setupEventListeners() {
     fetchSpotsCount();
 }
 
-// 3. Photo Handling
-function handlePhotoSelect(file) {
-    if (!file.type.startsWith('image/')) {
-        alert('画像ファイルのみ添付可能です。');
+// 3. Photos Multiple Handling (複数写真の追加・管理)
+function handlePhotosSelect(fileList) {
+    const validFiles = Array.from(fileList).filter(f => f.type.startsWith('image/'));
+    if (validFiles.length === 0) {
+        alert('画像ファイル（JPEG, PNG等）を選択してください。');
         return;
     }
-    
-    uploadedPhotoFile = file;
-    
-    const reader = new FileReader();
-    reader.onload = (e) => {
-        previewImg.src = e.target.result;
-        dropzonePrompt.classList.add('hidden');
-        dropzonePreview.classList.remove('hidden');
-        btnTriggerBlur.classList.remove('hidden');
-    };
-    reader.readAsDataURL(file);
+
+    validFiles.forEach(file => {
+        const previewUrl = URL.createObjectURL(file);
+        uploadedPhotos.push({
+            id: Date.now() + Math.random().toString(36).substring(2, 7),
+            file: file,
+            previewUrl: previewUrl,
+            isExisting: false,
+            serverPath: null
+        });
+    });
+
+    renderPhotosGallery();
 }
 
-function removePhoto() {
-    uploadedPhotoFile = null;
-    photoInput.value = '';
-    previewImg.src = '';
-    dropzonePrompt.classList.remove('hidden');
-    dropzonePreview.classList.add('hidden');
-    btnTriggerBlur.classList.add('hidden');
+function renderPhotosGallery() {
+    if (!photosGalleryContainer || !photosGalleryGrid) return;
+
+    if (uploadedPhotos.length === 0) {
+        photoDropzone.classList.remove('hidden');
+        photosGalleryContainer.classList.add('hidden');
+        photosGalleryGrid.innerHTML = '';
+        return;
+    }
+
+    photoDropzone.classList.add('hidden');
+    photosGalleryContainer.classList.remove('hidden');
+    photosGalleryGrid.innerHTML = '';
+
+    uploadedPhotos.forEach((item, index) => {
+        const card = document.createElement('div');
+        card.className = 'photo-thumb-card';
+        card.innerHTML = `
+            <div class="photo-thumb-img-wrapper">
+                <img src="${item.previewUrl}" alt="写真 ${index + 1}">
+            </div>
+            <div class="photo-thumb-actions">
+                <button type="button" class="btn-thumb-blur" data-index="${index}" title="この写真の個人情報をぼかす">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:11px; height:11px;">
+                        <path d="M12 20h9"/>
+                        <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+                    </svg>
+                    ぼかし
+                </button>
+                <button type="button" class="btn-thumb-delete" data-index="${index}" title="この写真を削除">✕</button>
+            </div>
+        `;
+
+        const btnBlur = card.querySelector('.btn-thumb-blur');
+        btnBlur.addEventListener('click', (e) => {
+            e.stopPropagation();
+            openBlurEditor(index);
+        });
+
+        const btnDel = card.querySelector('.btn-thumb-delete');
+        btnDel.addEventListener('click', (e) => {
+            e.stopPropagation();
+            removePhotoAt(index);
+        });
+
+        photosGalleryGrid.appendChild(card);
+    });
+}
+
+function removePhotoAt(index) {
+    if (index >= 0 && index < uploadedPhotos.length) {
+        const removed = uploadedPhotos.splice(index, 1)[0];
+        if (removed.previewUrl && !removed.isExisting) {
+            URL.revokeObjectURL(removed.previewUrl);
+        }
+        renderPhotosGallery();
+    }
+}
+
+function removeAllPhotos() {
+    uploadedPhotos.forEach(p => {
+        if (p.previewUrl && !p.isExisting) {
+            URL.revokeObjectURL(p.previewUrl);
+        }
+    });
+    uploadedPhotos = [];
+    renderPhotosGallery();
 }
 
 // 4. Jurisdiction resolving & Selection Modal
@@ -733,6 +810,20 @@ async function fetchSpotsCount() {
     }
 }
 
+function formatJstDate(dateStr) {
+    if (!dateStr) return '';
+    try {
+        const cleaned = dateStr.replace('T', ' ').replace('Z', '');
+        const parts = cleaned.split(' ');
+        const ymd = parts[0].split('-');
+        const hm = parts[1] ? parts[1].substring(0, 5) : '';
+        if (ymd.length === 3) {
+            return `${ymd[0]}年${parseInt(ymd[1])}月${parseInt(ymd[2])}日 ${hm}`;
+        }
+    } catch (e) {}
+    return dateStr.substring(0, 16);
+}
+
 async function openSpotsListModal() {
     modalSpotsList.classList.remove('hidden');
     spotsListContainer.innerHTML = '<div style="text-align:center; padding: 24px; color: var(--text-secondary);"><div class="spinner" style="margin: 0 auto 10px;"></div>要望書一覧を読み込み中...</div>';
@@ -762,7 +853,7 @@ async function openSpotsListModal() {
             };
             const catLabel = categoryNames[spot.danger_category] || spot.danger_category || '要望';
             const stars = '★'.repeat(spot.danger_level || 3);
-            const dateStr = spot.created_at ? spot.created_at.substring(0, 16) : '';
+            const dateStr = formatJstDate(spot.created_at);
             const office = spot.target_office_name || (spot.target_type === 'police' ? '管轄警察署' : '自治体窓口');
 
             card.innerHTML = `
@@ -780,6 +871,13 @@ async function openSpotsListModal() {
                 </div>
                 ${spot.description ? `<div class="spot-item-desc">${escapeHtml(spot.description)}</div>` : ''}
                 <div class="spot-item-footer">
+                    <button type="button" class="btn-spot-delete" data-id="${spot.id}">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px; height:12px;">
+                            <polyline points="3 6 5 6 21 6"/>
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                        </svg>
+                        削除
+                    </button>
                     <button type="button" class="btn-spot-edit" data-id="${spot.id}">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px; height:12px;">
                             <path d="M12 20h9"/>
@@ -795,12 +893,48 @@ async function openSpotsListModal() {
                 e.stopPropagation();
                 loadSpotForEditing(spot.id);
             });
+
+            const btnDelete = card.querySelector('.btn-spot-delete');
+            btnDelete.addEventListener('click', (e) => {
+                e.stopPropagation();
+                deleteSpot(spot.id);
+            });
             
             spotsListContainer.appendChild(card);
         });
     } catch (err) {
         console.error("Spots fetch error:", err);
         spotsListContainer.innerHTML = `<div style="color:var(--danger); padding:16px;">一覧の取得に失敗しました: ${err.message}</div>`;
+    }
+}
+
+async function deleteSpot(spotId) {
+    if (!confirm(`要望書 (#${spotId}) を削除してもよろしいですか？\n※削除したデータは元に戻せません。`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/spots/${spotId}`, {
+            method: 'DELETE'
+        });
+        
+        if (!response.ok) {
+            throw new Error("削除リクエストに失敗しました");
+        }
+        
+        // 編集中だった要望書が削除された場合は編集モードを解除
+        if (editingSpotId === spotId) {
+            cancelEditMode();
+        }
+        
+        // 一覧・地図・バッジ件数を更新
+        await openSpotsListModal();
+        loadExistingSpots();
+        fetchSpotsCount();
+        
+    } catch (err) {
+        console.error("Delete spot error:", err);
+        alert("削除中にエラーが発生しました: " + err.message);
     }
 }
 
@@ -871,15 +1005,21 @@ async function loadSpotForEditing(spotId) {
             resolveJurisdiction();
         }
         
-        // 既存写真の復元
+        // 既存写真（複数可）の復元
+        removeAllPhotos();
         if (spot.photo_path) {
-            const photoFilename = spot.photo_path.split(/[\\/]/).pop();
-            previewImg.src = `/uploads/${photoFilename}`;
-            dropzonePrompt.classList.add('hidden');
-            dropzonePreview.classList.remove('hidden');
-            btnTriggerBlur.classList.remove('hidden');
-        } else {
-            removePhoto();
+            const paths = spot.photo_path.split(',').map(p => p.trim()).filter(Boolean);
+            paths.forEach(p => {
+                const filename = p.split(/[\\/]/).pop();
+                uploadedPhotos.push({
+                    id: Date.now() + Math.random().toString(36).substring(2, 7),
+                    file: null,
+                    previewUrl: `/uploads/${filename}`,
+                    isExisting: true,
+                    serverPath: p
+                });
+            });
+            renderPhotosGallery();
         }
         
         // モーダルを閉じ、STEP 1に移動
@@ -948,9 +1088,14 @@ async function generatePdfPreview() {
     formData.append('danger_category', document.getElementById('danger_category').value);
     formData.append('description', document.getElementById('description').value);
     
-    if (uploadedPhotoFile) {
-        formData.append('photo', uploadedPhotoFile);
-    }
+    // 複数写真の添付
+    uploadedPhotos.forEach(p => {
+        if (p.file) {
+            formData.append('photos', p.file);
+        } else if (p.serverPath) {
+            formData.append('photo_paths', p.serverPath);
+        }
+    });
     
     try {
         const response = await fetch('/api/generate-pdf', {
@@ -1022,9 +1167,14 @@ async function saveSpotAndFinalize() {
         formData.append('target_office_name', currentClosestJurisdiction.name);
     }
     
-    if (uploadedPhotoFile) {
-        formData.append('photo', uploadedPhotoFile);
-    }
+    // 複数写真の送信
+    uploadedPhotos.forEach(p => {
+        if (p.file) {
+            formData.append('photos', p.file);
+        } else if (p.serverPath) {
+            formData.append('photo_paths', p.serverPath);
+        }
+    });
     
     try {
         const endpoint = editingSpotId ? `/api/spots/${editingSpotId}` : '/api/spots';
@@ -1056,7 +1206,7 @@ function resetForm() {
     document.getElementById('danger_category').value = '';
     document.getElementById('description').value = '';
     document.getElementById('star3').checked = true;
-    removePhoto();
+    removeAllPhotos();
     
     // Clear pdf iframe
     pdfPreviewIframe.src = '';
@@ -1148,6 +1298,10 @@ async function switchWebcam() {
  * 現在のカメラプレビューフレームを静止画キャプチャする関数
  * ビデオ要素からCanvasへ描き写し、Blob(画像ファイル)に変換します。
  */
+/**
+ * 現在のカメラプレビューフレームを静止画キャプチャする関数
+ * ビデオ要素からCanvasへ描き写し、Blob(画像ファイル)に変換して写真ギャラリーに追加します。
+ */
 function captureWebcamPhoto() {
     if (!webcamVideo.videoWidth) return;
     
@@ -1161,28 +1315,31 @@ function captureWebcamPhoto() {
     
     // CanvasをJPEG Blobに変換してファイルオブジェクト化
     canvas.toBlob((blob) => {
-        const file = new File([blob], "captured_photo.jpg", { type: "image/jpeg" });
-        handlePhotoSelect(file); // メインの写真プレビュー領域へ受け渡し
+        const file = new File([blob], `captured_${Date.now()}.jpg`, { type: "image/jpeg" });
+        handlePhotosSelect([file]); // 写真ギャラリーへ追加
         closeWebcam();
     }, 'image/jpeg', 0.9);
 }
 
 /**
- * ぼかし編集モーダルを開き、編集対象の画像をCanvas上に準備する関数
+ * ぼかし編集モーダルを開き、選択された写真をCanvas上に準備する関数
  */
-function openBlurEditor() {
-    if (!uploadedPhotoFile) return;
+function openBlurEditor(photoIndex) {
+    if (photoIndex === undefined || photoIndex < 0 || photoIndex >= uploadedPhotos.length) return;
     
+    currentBlurPhotoIndex = photoIndex;
+    const photoItem = uploadedPhotos[photoIndex];
+    if (!photoItem || !photoItem.previewUrl) return;
+
     modalBlur.classList.remove('hidden');
     
     const img = new Image();
-    const objectUrl = URL.createObjectURL(uploadedPhotoFile);
+    // 外部ドメインや別オリジン画像のCORS対策
+    img.crossOrigin = "anonymous";
     
     img.onload = () => {
-        URL.revokeObjectURL(objectUrl);
-        
-        // パフォーマンスおよび操作性の観点から、エディタ上での最大寸法を800pxに制限（縮小）
-        const maxDim = 800;
+        // パフォーマンスおよび操作性の観点から、エディタ上での基準最大寸法を1000pxに設定
+        const maxDim = 1000;
         let w = img.width;
         let h = img.height;
         if (w > maxDim || h > maxDim) {
@@ -1195,9 +1352,11 @@ function openBlurEditor() {
             }
         }
         
-        // 編集用キャンバスのサイズを設定
+        // 編集用キャンバスの実ピクセルサイズを設定
         editorCanvas.width = w;
         editorCanvas.height = h;
+        editorCanvasOriginalWidth = w;
+        editorCanvasOriginalHeight = h;
         
         editorCtx = editorCanvas.getContext('2d');
         // オリジナル画像を描画
@@ -1206,16 +1365,58 @@ function openBlurEditor() {
         // リセット用にオリジナル画像を保持
         editorOriginalImage = img;
         
-        // 【非表示キャンバスの作成】: あらかじめ全体にぼかしを施した画像を作成しておきます。
+        // 【非表示キャンバスの作成】: あらかじめ全体にぼかしを施した画像を作成
         editorBlurredCanvas = document.createElement('canvas');
         editorBlurredCanvas.width = w;
         editorBlurredCanvas.height = h;
         const bCtx = editorBlurredCanvas.getContext('2d');
-        bCtx.filter = 'blur(15px)'; // CSS Filterで15pxのガウスぼかしを適用
+        bCtx.filter = 'blur(16px)'; // CSS Filterで16pxのガウスぼかしを適用
         bCtx.drawImage(img, 0, 0, w, h);
+
+        // ズームを100%等倍に初期化
+        currentZoom = 1.0;
+        updateCanvasZoomUI();
+        if (editorCanvasContainer) {
+            editorCanvasContainer.scrollTop = 0;
+            editorCanvasContainer.scrollLeft = 0;
+        }
     };
     
-    img.src = objectUrl;
+    img.src = photoItem.previewUrl;
+}
+
+/**
+ * ズーム率の増減
+ */
+function adjustZoom(delta) {
+    setZoom(currentZoom + delta);
+}
+
+/**
+ * ズームの等倍リセット
+ */
+function resetZoom() {
+    setZoom(1.0);
+}
+
+/**
+ * ズーム倍率を設定し、Canvas表示サイズとUI表示を更新
+ */
+function setZoom(val) {
+    // 0.5倍(50%)〜3.0倍(300%)の範囲に制限
+    currentZoom = Math.min(Math.max(val, 0.5), 3.0);
+    currentZoom = Math.round(currentZoom * 100) / 100; // 小数点整理
+    updateCanvasZoomUI();
+}
+
+function updateCanvasZoomUI() {
+    if (zoomLevelText) {
+        zoomLevelText.textContent = `${Math.round(currentZoom * 100)}%`;
+    }
+    if (editorCanvas && editorCanvasOriginalWidth > 0) {
+        editorCanvas.style.width = `${Math.round(editorCanvasOriginalWidth * currentZoom)}px`;
+        editorCanvas.style.height = `${Math.round(editorCanvasOriginalHeight * currentZoom)}px`;
+    }
 }
 
 /**
@@ -1226,6 +1427,8 @@ function closeBlurEditor() {
     editorCtx = null;
     editorOriginalImage = null;
     editorBlurredCanvas = null;
+    currentBlurPhotoIndex = null;
+    currentZoom = 1.0;
 }
 
 /**
@@ -1242,24 +1445,28 @@ function resetBlurCanvas() {
 }
 
 /**
- * ぼかしたCanvasの内容をBlob(JPEG)としてエクスポートし、アップロード用ファイルとして確定する関数
+ * ぼかしたCanvasの内容をBlob(JPEG)としてエクスポートし、対象写真カードを更新する関数
  */
 function saveBlurCanvas() {
-    if (!editorCtx) return;
+    if (!editorCtx || currentBlurPhotoIndex === null) return;
     
     editorCanvas.toBlob((blob) => {
-        const file = new File([blob], "edited_photo.jpg", { type: "image/jpeg" });
+        const file = new File([blob], `blurred_${Date.now()}.jpg`, { type: "image/jpeg" });
+        const newPreviewUrl = URL.createObjectURL(file);
         
-        // 編集後ファイル(ぼかし画像)でuploadedPhotoFileを更新し、プレビューにも反映
-        uploadedPhotoFile = file;
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            previewImg.src = e.target.result;
-        };
-        reader.readAsDataURL(file);
+        if (currentBlurPhotoIndex >= 0 && currentBlurPhotoIndex < uploadedPhotos.length) {
+            const item = uploadedPhotos[currentBlurPhotoIndex];
+            if (item.previewUrl && !item.isExisting) {
+                URL.revokeObjectURL(item.previewUrl);
+            }
+            item.file = file;
+            item.previewUrl = newPreviewUrl;
+            item.isExisting = false; // 編集されたため新規ファイルとして扱う
+            renderPhotosGallery();
+        }
         
         closeBlurEditor();
-    }, 'image/jpeg', 0.9);
+    }, 'image/jpeg', 0.92);
 }
 
 /**
@@ -1268,7 +1475,7 @@ function saveBlurCanvas() {
 function setupEditorCanvasDrawing() {
     /**
      * イベント(e)が発生した座標から、Canvas上での実描画ピクセル座標を算出するヘルパー関数
-     * ※レスポンシブでCanvasが表示縮小されていても、正しい描画座標を維持するためのスケーリング計算を含みます。
+     * ※レスポンシブおよびズーム（拡大表示）時でも、正しい描画座標を維持します。
      */
     const getCoordinates = (e) => {
         const rect = editorCanvas.getBoundingClientRect();
@@ -1316,7 +1523,11 @@ function setupEditorCanvasDrawing() {
         drawBlur(e);
     });
     
-    editorCanvas.addEventListener('mousemove', drawBlur);
+    editorCanvas.addEventListener('mousemove', (e) => {
+        if (isDrawingOnEditor) {
+            drawBlur(e);
+        }
+    });
     
     window.addEventListener('mouseup', () => {
         isDrawingOnEditor = false;
@@ -1324,14 +1535,18 @@ function setupEditorCanvasDrawing() {
     
     // スマホ向け タッチイベントリスナー
     editorCanvas.addEventListener('touchstart', (e) => {
-        e.preventDefault(); // なぞった際にスマホ画面全体がスクロールしてしまうのを防止
-        isDrawingOnEditor = true;
-        drawBlur(e);
+        if (e.touches.length === 1) {
+            e.preventDefault(); // なぞり描画中に画面全体がスクロールするのを防止
+            isDrawingOnEditor = true;
+            drawBlur(e);
+        }
     }, { passive: false });
     
     editorCanvas.addEventListener('touchmove', (e) => {
-        e.preventDefault(); // なぞった際にスマホ画面全体がスクロールしてしまうのを防止
-        drawBlur(e);
+        if (isDrawingOnEditor && e.touches.length === 1) {
+            e.preventDefault(); // なぞり描画中に画面全体がスクロールするのを防止
+            drawBlur(e);
+        }
     }, { passive: false });
     
     window.addEventListener('touchend', () => {

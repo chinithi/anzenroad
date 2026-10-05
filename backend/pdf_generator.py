@@ -368,7 +368,7 @@ def generate_request_pdf(data):
     story.append(Paragraph(data.get('date_str', '令和8年6月9日'), right_style))
     story.append(Spacer(1, 5))
     
-    # 3. 要望者（代表者）連絡先ブロックを追加（右寄せで配置するための透明テーブル）
+    # 3. 要望者（代表者）連絡先ブロックを追加（右端マージンに綺麗に寄せる）
     req_name = data.get('requester_name', '（省略）')
     req_addr = data.get('requester_address', '（省略）')
     req_phone = data.get('requester_phone', '（省略）')
@@ -378,14 +378,15 @@ def generate_request_pdf(data):
                     f"氏名: {req_name} &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;印<br/>" \
                     f"電話番号: {req_phone}"
     
-    # 全体の印刷幅 523ポイントを割り振る
+    # 全幅 523ポイントの中で、右端に揃えるために左列を広げて右列を右端に配置
     req_table_data = [
         ["", Paragraph(req_info_text, normal_style)]
     ]
-    req_table = Table(req_table_data, colWidths=[273, 250])
+    req_table = Table(req_table_data, colWidths=[293, 230], hAlign='RIGHT')
     req_table.setStyle(TableStyle([
         ('VALIGN', (0,0), (-1,-1), 'TOP'),
         ('PADDING', (0,0), (-1,-1), 0),
+        ('ALIGN', (0,0), (-1,-1), 'RIGHT'),
     ]))
     story.append(req_table)
     story.append(Spacer(1, 15))
@@ -409,7 +410,6 @@ def generate_request_pdf(data):
     # 選択カテゴリに応じた正式な定型要望理由
     formal_reason = category_info['formal']
     user_desc = data.get('description', '')
-    # ユーザーがテキストを入力していた場合は定型文に連結して表示
     if user_desc:
         reason_content = f"{formal_reason}<br/><br/><b>【具体的な状況・住民の声】</b><br/>{user_desc}"
     else:
@@ -421,75 +421,98 @@ def generate_request_pdf(data):
         [Paragraph("<b>具体的な理由</b>", cell_header_style), Paragraph(reason_content, cell_style)],
     ]
     
-    # テーブルのスタイル調整
     details_table = Table(details_data, colWidths=[90, 433])
     details_table.setStyle(TableStyle([
-        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#9ca3af')), # 薄いグレーの罫線
-        ('BACKGROUND', (0,0), (0,-1), colors.HexColor('#f3f4f6')), # ヘッダー列の背景グレー
+        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#9ca3af')),
+        ('BACKGROUND', (0,0), (0,-1), colors.HexColor('#f3f4f6')),
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
         ('PADDING', (0,0), (-1,-1), 8),
     ]))
     story.append(details_table)
-    story.append(Spacer(1, 20))
+    story.append(Spacer(1, 15))
     
     # 7. 添付資料ヘッダーを追加
     story.append(Paragraph("<b>【添付資料】位置図（地図）および現況写真</b>", bold_style))
     story.append(Spacer(1, 8))
     
-    # 地図位置図のスナップショットを合成・取得
+    # 地図位置図のスナップショットを合成・取得（国土地理院タイル）
     lat = data.get('latitude', 35.6938)
     lng = data.get('longitude', 139.7034)
     map_img_path = generate_static_map(lat, lng, zoom=17, size=(480, 320))
     
-    photo_path = data.get('photo_path')
-    if photo_path and not os.path.exists(photo_path):
-        photo_path = None
-        
-    # 写真がある場合は、地図位置図と現況写真を「左右横並び」で美しく配置
-    # 写真がない場合は、「大きな地図のみ」を中央配置
-    attachments_data = []
-    if photo_path:
-        # 地図画像の幅を約250ポイントにリサイズ（アスペクト比 1.5 -> 高さ166）
-        map_img_flowable = RLImage(map_img_path, width=250, height=166)
-        
-        # ユーザー写真のアスペクト比を維持しながら縮小計算
+    # 複数写真パスの取得と存在検証
+    raw_photo = data.get('photo_path') or ''
+    photo_paths = data.get('photo_paths') or []
+    if not photo_paths and raw_photo:
+        photo_paths = [p.strip() for p in raw_photo.split(',') if p.strip()]
+    valid_photos = [p for p in photo_paths if os.path.exists(p)]
+    
+    def create_photo_flowable(p_path, max_w, max_h):
         try:
-            with Image.open(photo_path) as p_img:
+            with Image.open(p_path) as p_img:
                 pw, ph = p_img.size
             ratio = pw / ph
-            p_width = 250
-            p_height = int(250 / ratio)
-            # 縦幅がはみ出ないよう上限166にクリップ
-            if p_height > 166:
-                p_height = 166
-                p_width = int(166 * ratio)
+            w = max_w
+            h = int(w / ratio)
+            if h > max_h:
+                h = max_h
+                w = int(h * ratio)
+            return RLImage(p_path, width=w, height=h)
         except Exception as e:
-            print(f"Error reading user photo: {e}")
-            p_width = 250
-            p_height = 166
-            
-        photo_img_flowable = RLImage(photo_path, width=p_width, height=p_height)
-        
+            print(f"Error creating photo flowable: {e}")
+            return Paragraph("画像読込エラー", cell_style)
+
+    attachments_data = []
+    
+    if len(valid_photos) == 0:
+        # 写真なし: 地図のみ大きく表示
+        map_img_flowable = RLImage(map_img_path, width=420, height=260)
         attachments_data = [
-            [Paragraph("<b>【位置図】付近見取図</b>", cell_header_style), Paragraph("<b>【現況写真】危険箇所の写真</b>", cell_header_style)],
-            [map_img_flowable, photo_img_flowable]
-        ]
-        attachments_table = Table(attachments_data, colWidths=[261, 262])
-    else:
-        # 地図のみ配置
-        map_img_flowable = RLImage(map_img_path, width=380, height=253)
-        attachments_data = [
-            [Paragraph("<b>【位置図】付近見取図（座標: 北緯 {:.5f}度 / 東経 {:.5f}度）</b>", cell_header_style)],
+            [Paragraph("<b>【位置図】付近見取図</b>", cell_header_style)],
             [map_img_flowable]
         ]
         attachments_table = Table(attachments_data, colWidths=[523])
+    elif len(valid_photos) == 1:
+        # 写真1枚: 地図と写真を左右横並び
+        map_img_flowable = RLImage(map_img_path, width=250, height=166)
+        p_img_flowable = create_photo_flowable(valid_photos[0], 250, 166)
+        attachments_data = [
+            [Paragraph("<b>【位置図】付近見取図</b>", cell_header_style), Paragraph("<b>【現況写真】現地の状況</b>", cell_header_style)],
+            [map_img_flowable, p_img_flowable]
+        ]
+        attachments_table = Table(attachments_data, colWidths=[261, 262])
+    elif len(valid_photos) == 2:
+        # 写真2枚: 上段に地図と写真1、下段に写真2
+        map_img_flowable = RLImage(map_img_path, width=250, height=150)
+        p1 = create_photo_flowable(valid_photos[0], 250, 150)
+        p2 = create_photo_flowable(valid_photos[1], 250, 130)
+        attachments_data = [
+            [Paragraph("<b>【位置図】付近見取図</b>", cell_header_style), Paragraph("<b>【現況写真①】</b>", cell_header_style)],
+            [map_img_flowable, p1],
+            [Paragraph("<b>【現況写真②】（別角度・近景）</b>", cell_header_style), ""],
+            [p2, ""]
+        ]
+        attachments_table = Table(attachments_data, colWidths=[261, 262])
+    else:
+        # 写真3枚以上: 地図 + 複数写真グリッド
+        map_img_flowable = RLImage(map_img_path, width=250, height=140)
+        p1 = create_photo_flowable(valid_photos[0], 250, 140)
+        p2 = create_photo_flowable(valid_photos[1], 250, 120)
+        p3 = create_photo_flowable(valid_photos[2], 250, 120)
+        attachments_data = [
+            [Paragraph("<b>【位置図】付近見取図</b>", cell_header_style), Paragraph("<b>【現況写真①】</b>", cell_header_style)],
+            [map_img_flowable, p1],
+            [Paragraph("<b>【現況写真②】</b>", cell_header_style), Paragraph("<b>【現況写真③】</b>", cell_header_style)],
+            [p2, p3]
+        ]
+        attachments_table = Table(attachments_data, colWidths=[261, 262])
         
     attachments_table.setStyle(TableStyle([
         ('ALIGN', (0,0), (-1,-1), 'CENTER'),
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
         ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#d1d5db')),
         ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#f9fafb')),
-        ('PADDING', (0,0), (-1,-1), 6),
+        ('PADDING', (0,0), (-1,-1), 5),
     ]))
     
     story.append(attachments_table)

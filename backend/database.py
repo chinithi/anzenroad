@@ -2,6 +2,14 @@
 import sqlite3
 import os
 import re
+import datetime
+
+# 日本標準時 (JST, UTC+9) タイムゾーンの定義
+JST = datetime.timezone(datetime.timedelta(hours=9))
+
+def get_jst_now_str():
+    """現在日時を日本標準時(JST)の文字列で返却します。"""
+    return datetime.datetime.now(JST).strftime('%Y-%m-%d %H:%M')
 
 # データベースファイルの保存先ディレクトリとパスの設定
 DB_DIR = os.path.join(os.path.dirname(__file__), 'data')
@@ -49,6 +57,12 @@ def init_db():
     # 既存テーブルへのカラム追加対応（target_office_name）
     try:
         cursor.execute("ALTER TABLE dangerous_spots ADD COLUMN target_office_name TEXT")
+    except Exception:
+        pass
+
+    # 過去にUTCで登録されたデータのcreated_atをJST(+9時間)に補正
+    try:
+        cursor.execute("UPDATE dangerous_spots SET created_at = strftime('%Y-%m-%d %H:%M', created_at, '+9 hours') WHERE length(created_at) > 16")
     except Exception:
         pass
     
@@ -235,17 +249,18 @@ def save_spot(data):
     """
     conn = get_db_connection()
     cursor = conn.cursor()
+    jst_created_at = get_jst_now_str()
     cursor.execute('''
         INSERT INTO dangerous_spots (
             latitude, longitude, address, target_type, danger_category, 
             danger_level, description, requester_name, requester_address, 
-            requester_phone, photo_path, target_office_name
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            requester_phone, photo_path, target_office_name, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', (
         data['latitude'], data['longitude'], data.get('address'), data['target_type'],
         data['danger_category'], data['danger_level'], data.get('description'),
         data.get('requester_name'), data.get('requester_address'), data.get('requester_phone'),
-        data.get('photo_path'), data.get('target_office_name')
+        data.get('photo_path'), data.get('target_office_name'), jst_created_at
     ))
     conn.commit()
     spot_id = cursor.lastrowid
@@ -291,6 +306,17 @@ def update_spot(spot_id, data):
     conn.close()
     return True
 
+def delete_spot(spot_id):
+    """
+    指定されたIDの危険箇所レコードをデータベースから削除します。
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('DELETE FROM dangerous_spots WHERE id = ?', (spot_id,))
+    conn.commit()
+    conn.close()
+    return True
+
 def get_spot_by_id(spot_id):
     """
     指定されたIDの危険箇所情報を1件取得します。
@@ -311,7 +337,7 @@ def get_all_spots():
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute('''
-        SELECT * FROM dangerous_spots ORDER BY created_at DESC
+        SELECT * FROM dangerous_spots ORDER BY created_at DESC, id DESC
     ''')
     results = [dict(row) for row in cursor.fetchall()]
     conn.close()

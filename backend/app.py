@@ -7,8 +7,11 @@ import datetime
 # backendディレクトリをインポート検索パスに追加
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from database import init_db, save_spot, get_all_spots, find_closest_jurisdiction, find_closest_jurisdictions, get_spot_by_id, update_spot
+from database import init_db, save_spot, get_all_spots, find_closest_jurisdiction, find_closest_jurisdictions, get_spot_by_id, update_spot, delete_spot
 from pdf_generator import generate_request_pdf
+
+# 日本標準時 (JST, UTC+9)
+JST = datetime.timezone(datetime.timedelta(hours=9))
 
 # Flaskアプリケーションの初期設定
 app = Flask(__name__, static_folder='static', static_url_path='')
@@ -48,16 +51,21 @@ def api_save_spot():
     - 各パラメータをパースし、SQLiteへ登録。
     """
     try:
-        # 写真ファイルのアップロード処理
-        photo_path = None
-        if 'photo' in request.files:
-            file = request.files['photo']
-            if file.filename:
-                # ファイル名の重複を防ぐため年月日時分秒を接頭辞として付与
-                filename = f"{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{file.filename}"
+        # 写真ファイルのアップロード処理（複数枚対応）
+        photo_paths = []
+        files = request.files.getlist('photos') or request.files.getlist('photo')
+        for file in files:
+            if file and file.filename:
+                filename = f"{datetime.datetime.now(JST).strftime('%Y%m%d%H%M%S%f')}_{file.filename}"
                 save_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
                 file.save(save_path)
-                photo_path = save_path
+                photo_paths.append(save_path)
+                
+        existing_paths = request.form.getlist('photo_paths') or [request.form.get('photo_path')]
+        for p in existing_paths:
+            if p and os.path.exists(p) and p not in photo_paths:
+                photo_paths.append(p)
+        joined_photo_path = ",".join(photo_paths) if photo_paths else None
                 
         # 送信されたフォームデータを取得
         data = request.form.to_dict()
@@ -78,7 +86,7 @@ def api_save_spot():
             'requester_name': data.get('requester_name', ''),
             'requester_address': data.get('requester_address', ''),
             'requester_phone': data.get('requester_phone', ''),
-            'photo_path': photo_path,
+            'photo_path': joined_photo_path,
             'target_office_name': data.get('target_office_name', '')
         }
         
@@ -110,16 +118,20 @@ def api_update_spot_route(spot_id):
     """
     try:
         data = request.form.to_dict()
-        photo_path = None
-        if 'photo' in request.files:
-            file = request.files['photo']
-            if file.filename:
-                filename = f"edit_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{file.filename}"
+        photo_paths = []
+        files = request.files.getlist('photos') or request.files.getlist('photo')
+        for file in files:
+            if file and file.filename:
+                filename = f"edit_{datetime.datetime.now(JST).strftime('%Y%m%d%H%M%S%f')}_{file.filename}"
                 save_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
                 file.save(save_path)
-                photo_path = save_path
-        elif data.get('photo_path'):
-            photo_path = data.get('photo_path')
+                photo_paths.append(save_path)
+                
+        existing_paths = request.form.getlist('photo_paths') or [request.form.get('photo_path')]
+        for p in existing_paths:
+            if p and os.path.exists(p) and p not in photo_paths:
+                photo_paths.append(p)
+        joined_photo_path = ",".join(photo_paths) if photo_paths else None
 
         latitude = float(data.get('latitude', 0))
         longitude = float(data.get('longitude', 0))
@@ -136,12 +148,26 @@ def api_update_spot_route(spot_id):
             'requester_name': data.get('requester_name', ''),
             'requester_address': data.get('requester_address', ''),
             'requester_phone': data.get('requester_phone', ''),
-            'photo_path': photo_path,
+            'photo_path': joined_photo_path,
             'target_office_name': data.get('target_office_name', '')
         }
 
         update_spot(spot_id, spot_data)
         return jsonify({'id': spot_id, 'message': 'Spot updated successfully'}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/spots/<int:spot_id>', methods=['DELETE'])
+def api_delete_spot(spot_id):
+    """
+    指定されたIDの危険箇所レコードを削除するAPI。
+    """
+    try:
+        spot = get_spot_by_id(spot_id)
+        if not spot:
+            return jsonify({'error': 'Spot not found'}), 404
+        delete_spot(spot_id)
+        return jsonify({'message': 'Spot deleted successfully', 'id': spot_id}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -190,20 +216,24 @@ def api_generate_pdf():
         # 送信されたフォームデータを取得
         data = request.form.to_dict()
         
-        # プレビュー時の一時写真アップロード処理
-        photo_path = None
-        if 'photo' in request.files:
-            file = request.files['photo']
-            if file.filename:
-                filename = f"tmp_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{file.filename}"
-                photo_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-                file.save(photo_path)
-        elif data.get('photo_path'):
-            # 既に保存されている写真パスがある場合は再利用
-            photo_path = data.get('photo_path')
+        # プレビュー時の一時写真アップロード処理（複数枚対応）
+        photo_paths = []
+        files = request.files.getlist('photos') or request.files.getlist('photo')
+        for file in files:
+            if file and file.filename:
+                filename = f"tmp_{datetime.datetime.now(JST).strftime('%Y%m%d%H%M%S%f')}_{file.filename}"
+                save_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                file.save(save_path)
+                photo_paths.append(save_path)
+                
+        # 既存の写真パスが渡された場合
+        existing_paths = request.form.getlist('photo_paths') or [data.get('photo_path')]
+        for p in existing_paths:
+            if p and os.path.exists(p) and p not in photo_paths:
+                photo_paths.append(p)
 
-        # 提出書類の和暦（令和）での日付文字列を作成
-        now = datetime.datetime.now()
+        # 提出書類の和暦（令和）での日付文字列を作成 (JST 日本標準時)
+        now = datetime.datetime.now(JST)
         reiwa_year = now.year - 2018
         date_str = f"令和{reiwa_year}年{now.month}月{now.day}日"
 
@@ -218,7 +248,8 @@ def api_generate_pdf():
             'description': data.get('description', ''),
             'latitude': float(data.get('latitude', 0)),
             'longitude': float(data.get('longitude', 0)),
-            'photo_path': photo_path
+            'photo_path': photo_paths[0] if photo_paths else None,
+            'photo_paths': photo_paths
         }
 
         # PDFドキュメントの生成を実行
