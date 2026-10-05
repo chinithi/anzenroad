@@ -26,44 +26,65 @@ def register_japanese_font():
         return
     """
     ReportLab PDFエンジンで日本語を表示可能にするため、フォントを検索・登録する関数。
-    1. Windowsシステム標準フォント(MSゴシック, MS明朝, メイリオ)を優先的に探索
-    2. 見つからない場合はIPAexGothicフォントをプログラムから自動ダウンロードして代替します
+    1. リポジトリに同梱されたフォント (backend/fonts/ipaexg.ttf 等) を最優先で探索
+    2. OSシステム標準フォント (Windows / Linux) を探索
+    3. 見つからない場合はIPA公式ZIPから自動ダウンロードして展開
     """
-    font_paths_to_try = [
-        r"C:\Windows\Fonts\msgothic.ttc",
-        r"C:\Windows\Fonts\msmincho.ttc",
-        r"C:\Windows\Fonts\meiryo.ttc",
-    ]
-    
     registered = False
-    for path in font_paths_to_try:
+    
+    # 1. リポジトリ同梱のフォントファイルを最優先でチェック
+    bundled_font_paths = [
+        os.path.join(os.path.dirname(__file__), 'fonts', 'ipaexg.ttf'),
+        os.path.join(FONTS_DIR, 'ipaexg.ttf'),
+    ]
+    for path in bundled_font_paths:
         if os.path.exists(path):
             try:
-                # 日本語フォントを「JapaneseFont」という名前で登録
                 pdfmetrics.registerFont(TTFont('JapaneseFont', path))
                 registered = True
-                print(f"Registered system font: {path}")
+                print(f"Registered bundled font: {path}")
                 break
             except Exception as e:
-                print(f"Failed to register system font {path}: {e}")
-                
+                print(f"Failed to register bundled font {path}: {e}")
+
+    # 2. OSのシステムフォントを探索
     if not registered:
-        # システムフォントが無い場合のフォールバック（IPAexGothicをダウンロード）
+        font_paths_to_try = [
+            r"C:\Windows\Fonts\msgothic.ttc",
+            r"C:\Windows\Fonts\msmincho.ttc",
+            r"C:\Windows\Fonts\meiryo.ttc",
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/truetype/fonts-japanese-gothic.ttf",
+            "/usr/share/fonts/opentype/ipafont-gothic/ipag.ttf"
+        ]
+        for path in font_paths_to_try:
+            if os.path.exists(path):
+                try:
+                    pdfmetrics.registerFont(TTFont('JapaneseFont', path))
+                    registered = True
+                    print(f"Registered system font: {path}")
+                    break
+                except Exception as e:
+                    print(f"Failed to register system font {path}: {e}")
+
+    # 3. システムフォントが無い場合のフォールバック（公式IPAexGothicをダウンロードして解凍）
+    if not registered:
         fallback_font_path = os.path.join(FONTS_DIR, 'ipaexg.ttf')
         if not os.path.exists(fallback_font_path):
-            print("Downloading IPAexGothic font fallback...")
+            print("Downloading IPAexGothic font fallback from moji.or.jp...")
             try:
-                url = "https://github.com/ipa-font/ipaexfont/raw/main/ipaexg00401/ipaexg.ttf"
-                r = requests.get(url, timeout=15)
-                if r.status_code == 200:
+                import urllib.request, zipfile, io
+                url = "https://moji.or.jp/wp-content/ipafont/IPAexfont/IPAexfont00401.zip"
+                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (AnzenRoad App)'})
+                with urllib.request.urlopen(req, timeout=25) as resp:
+                    z = zipfile.ZipFile(io.BytesIO(resp.read()))
                     with open(fallback_font_path, 'wb') as f:
-                        f.write(r.content)
-                    print("Downloaded IPAexGothic font.")
-                else:
-                    raise Exception(f"Failed to download font: status {r.status_code}")
+                        f.write(z.read('IPAexfont00401/ipaexg.ttf'))
+                print("Downloaded and extracted IPAexGothic font.")
             except Exception as e:
                 print(f"Failed to download fallback font: {e}")
-                
+
         if os.path.exists(fallback_font_path):
             try:
                 pdfmetrics.registerFont(TTFont('JapaneseFont', fallback_font_path))
@@ -71,11 +92,17 @@ def register_japanese_font():
                 print("Registered downloaded font: ipaexg.ttf")
             except Exception as e:
                 print(f"Failed to register downloaded font: {e}")
-                
+
+    # 万が一フォント登録が全て失敗した場合、ReportLabが例外で落ちるのを防ぐためダミーフォントを登録
     if not registered:
-        print("WARNING: No Japanese font registered. PDF may contain gibberish.")
-        
-    # 登録の成否にかかわらず、処理完了フラグを立てて二重処理を防ぎます
+        print("WARNING: No Japanese font registered. Falling back to Helvetica (PDF will not render Japanese correctly).")
+        try:
+            # 組み込みのHelveticaをJapaneseFontとして代替登録
+            from reportlab.pdfbase.pdfmetrics import registerFontFamily
+            pdfmetrics.registerFont(TTFont('JapaneseFont', 'Helvetica'))
+        except Exception:
+            pass
+
     IS_FONT_REGISTERED = True
 
 # -------------------------------------------------------------------------

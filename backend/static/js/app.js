@@ -7,7 +7,19 @@ let selectedAddress = "";
 let uploadedPhotoFile = null;
 let generatedPdfBlobUrl = null;
 let currentClosestJurisdiction = null;
+let jurisdictionCandidates = [];
 let existingSpots = [];
+
+// Jurisdiction Modal Elements
+const modalJurisdiction = document.getElementById('modal-jurisdiction');
+const btnOpenJurisdictionModal = document.getElementById('btn-open-jurisdiction-modal');
+const btnCloseJurisdiction = document.getElementById('btn-close-jurisdiction');
+const btnCancelJurisdiction = document.getElementById('btn-cancel-jurisdiction');
+const btnApplyJurisdiction = document.getElementById('btn-apply-jurisdiction');
+const jurisdictionCandidatesList = document.getElementById('jurisdiction-candidates-list');
+const manualJName = document.getElementById('manual-j-name');
+const manualJAddress = document.getElementById('manual-j-address');
+const manualJPhone = document.getElementById('manual-j-phone');
 
 // DOM Elements
 const step1 = document.getElementById('step-1');
@@ -477,6 +489,12 @@ function setupEventListeners() {
     // PDF Preview Trigger
     btnPreviewPdf.addEventListener('click', generatePdfPreview);
     
+    // Jurisdiction Modal Events
+    if (btnOpenJurisdictionModal) btnOpenJurisdictionModal.addEventListener('click', openJurisdictionModal);
+    if (btnCloseJurisdiction) btnCloseJurisdiction.addEventListener('click', closeJurisdictionModal);
+    if (btnCancelJurisdiction) btnCancelJurisdiction.addEventListener('click', closeJurisdictionModal);
+    if (btnApplyJurisdiction) btnApplyJurisdiction.addEventListener('click', applyJurisdictionSelection);
+
     // Final download button trigger
     btnDownloadPdfFinal.addEventListener('click', () => {
         if (generatedPdfBlobUrl) {
@@ -520,7 +538,7 @@ function removePhoto() {
     btnTriggerBlur.classList.add('hidden');
 }
 
-// 4. Jurisdiction resolving
+// 4. Jurisdiction resolving & Selection Modal
 async function resolveJurisdiction() {
     if (!selectedLatLng) return;
     
@@ -533,42 +551,134 @@ async function resolveJurisdiction() {
             body: JSON.stringify({
                 latitude: selectedLatLng.lat,
                 longitude: selectedLatLng.lng,
-                target_type: targetType
+                target_type: targetType,
+                address: selectedAddress
             })
         });
         
         if (response.ok) {
-            currentClosestJurisdiction = await response.json();
+            const data = await response.json();
+            currentClosestJurisdiction = data;
+            jurisdictionCandidates = data.candidates || [];
             
-            // Update UI preview box
-            const badge = document.getElementById('j-badge');
-            const name = document.getElementById('j-name');
-            const address = document.getElementById('j-address');
-            
-            badge.textContent = targetType === 'police' ? '管轄警察署' : '自治体窓口';
-            badge.style.background = targetType === 'police' ? 'rgba(16, 185, 129, 0.15)' : 'var(--primary-glow)';
-            badge.style.color = targetType === 'police' ? 'var(--success)' : 'var(--primary)';
-            badge.style.borderColor = targetType === 'police' ? 'rgba(16, 185, 129, 0.2)' : 'rgba(14, 165, 233, 0.2)';
-            
-            name.textContent = currentClosestJurisdiction.name;
-            address.textContent = currentClosestJurisdiction.address;
-            
-            // Populate step 4 target guide
-            document.getElementById('guide-j-name').textContent = currentClosestJurisdiction.name;
-            document.getElementById('guide-j-address').textContent = currentClosestJurisdiction.address;
-            document.getElementById('guide-j-phone').textContent = currentClosestJurisdiction.phone || "N/A";
-            
-            const urlLink = document.getElementById('guide-j-url');
-            if (currentClosestJurisdiction.online_url && currentClosestJurisdiction.online_url !== '#') {
-                urlLink.href = currentClosestJurisdiction.online_url;
-                document.getElementById('guide-url-wrapper').style.display = 'flex';
-            } else {
-                document.getElementById('guide-url-wrapper').style.display = 'none';
-            }
+            updateJurisdictionPreviewUI();
         }
     } catch (err) {
         console.error("Jurisdiction fetch failed:", err);
     }
+}
+
+function updateJurisdictionPreviewUI() {
+    if (!currentClosestJurisdiction) return;
+    
+    const targetType = document.querySelector('input[name="target_type"]:checked').value;
+    const badge = document.getElementById('j-badge');
+    const name = document.getElementById('j-name');
+    const address = document.getElementById('j-address');
+    
+    badge.textContent = targetType === 'police' ? '管轄警察署' : '自治体窓口';
+    badge.style.background = targetType === 'police' ? 'rgba(16, 185, 129, 0.15)' : 'var(--primary-glow)';
+    badge.style.color = targetType === 'police' ? 'var(--success)' : 'var(--primary)';
+    badge.style.borderColor = targetType === 'police' ? 'rgba(16, 185, 129, 0.2)' : 'rgba(14, 165, 233, 0.2)';
+    
+    name.textContent = currentClosestJurisdiction.name;
+    address.textContent = currentClosestJurisdiction.address;
+    
+    // Populate step 4 target guide
+    document.getElementById('guide-j-name').textContent = currentClosestJurisdiction.name;
+    document.getElementById('guide-j-address').textContent = currentClosestJurisdiction.address;
+    document.getElementById('guide-j-phone').textContent = currentClosestJurisdiction.phone || "N/A";
+    
+    const urlLink = document.getElementById('guide-j-url');
+    if (currentClosestJurisdiction.online_url && currentClosestJurisdiction.online_url !== '#') {
+        urlLink.href = currentClosestJurisdiction.online_url;
+        document.getElementById('guide-url-wrapper').style.display = 'flex';
+    } else {
+        document.getElementById('guide-url-wrapper').style.display = 'none';
+    }
+}
+
+function openJurisdictionModal() {
+    if (!currentClosestJurisdiction) return;
+    
+    // 現在の選択情報を手動入力フォームにセット
+    manualJName.value = currentClosestJurisdiction.name || '';
+    manualJAddress.value = currentClosestJurisdiction.address || '';
+    manualJPhone.value = currentClosestJurisdiction.phone || '';
+    
+    // 候補リストを生成
+    renderJurisdictionCandidates();
+    
+    modalJurisdiction.classList.remove('hidden');
+}
+
+function closeJurisdictionModal() {
+    modalJurisdiction.classList.add('hidden');
+}
+
+function renderJurisdictionCandidates() {
+    jurisdictionCandidatesList.innerHTML = '';
+    
+    if (!jurisdictionCandidates || jurisdictionCandidates.length === 0) {
+        jurisdictionCandidatesList.innerHTML = '<p style="font-size:12px; color:var(--text-secondary); padding: 8px 0;">候補が取得できませんでした。下の手動直接入力欄をご利用ください。</p>';
+        return;
+    }
+    
+    jurisdictionCandidates.forEach((cand, idx) => {
+        const card = document.createElement('div');
+        card.className = 'candidate-card';
+        if (cand.name === manualJName.value) {
+            card.classList.add('active');
+        }
+        
+        const isRec = cand.is_inferred || idx === 0;
+        const badgeText = isRec ? '★ 住所から自動推定' : (cand.type === 'police' ? '警察署' : '自治体');
+        const badgeClass = isRec ? 'candidate-badge recommended' : 'candidate-badge';
+        
+        card.innerHTML = `
+            <div class="candidate-card-top">
+                <span class="candidate-title">${cand.name}</span>
+                <span class="${badgeClass}">${badgeText}</span>
+            </div>
+            <div class="candidate-sub">
+                <span>📍 ${cand.address || '住所情報なし'}</span>
+                ${cand.phone ? `<span>📞 ${cand.phone}</span>` : ''}
+            </div>
+        `;
+        
+        card.addEventListener('click', () => {
+            document.querySelectorAll('.candidate-card').forEach(c => c.classList.remove('active'));
+            card.classList.add('active');
+            
+            manualJName.value = cand.name;
+            manualJAddress.value = cand.address || '';
+            manualJPhone.value = cand.phone || '';
+        });
+        
+        jurisdictionCandidatesList.appendChild(card);
+    });
+}
+
+function applyJurisdictionSelection() {
+    const newName = manualJName.value.trim();
+    if (!newName) {
+        alert("宛先・窓口名を入力してください。");
+        return;
+    }
+    
+    const newAddress = manualJAddress.value.trim();
+    const newPhone = manualJPhone.value.trim();
+    
+    if (!currentClosestJurisdiction) {
+        currentClosestJurisdiction = {};
+    }
+    
+    currentClosestJurisdiction.name = newName;
+    currentClosestJurisdiction.address = newAddress;
+    currentClosestJurisdiction.phone = newPhone;
+    
+    updateJurisdictionPreviewUI();
+    closeJurisdictionModal();
 }
 
 // 5. PDF generation & view
@@ -586,8 +696,23 @@ async function generatePdfPreview() {
     formData.append('address', selectedAddress);
     
     const targetType = document.querySelector('input[name="target_type"]:checked').value;
-    const suffix = targetType === 'police' ? '長 殿' : ' 道路整備担当課 御中';
-    formData.append('target_office_name', `${currentClosestJurisdiction.name}${suffix}`);
+    let targetOfficeName = (currentClosestJurisdiction.name || '').trim();
+    if (targetOfficeName.endsWith('御中') || targetOfficeName.endsWith('殿')) {
+        // すでに敬称が付いている場合はそのまま
+    } else if (targetType === 'police') {
+        if (targetOfficeName.endsWith('署')) {
+            targetOfficeName += '長 殿';
+        } else {
+            targetOfficeName += ' 御中';
+        }
+    } else {
+        if (!targetOfficeName.includes('課') && !targetOfficeName.includes('係') && !targetOfficeName.includes('局') && !targetOfficeName.includes('所')) {
+            targetOfficeName += ' 道路管理担当課 御中';
+        } else {
+            targetOfficeName += ' 御中';
+        }
+    }
+    formData.append('target_office_name', targetOfficeName);
     
     formData.append('requester_name', document.getElementById('requester_name').value);
     formData.append('requester_address', document.getElementById('requester_address').value);
@@ -624,11 +749,16 @@ async function generatePdfPreview() {
                 pdfLoadingOverlay.classList.add('hidden');
             };
         } else {
-            throw new Error("Failed to generate PDF");
+            let errorMsg = "サーバーエラーが発生しました";
+            try {
+                const errData = await response.json();
+                if (errData && errData.error) errorMsg = errData.error;
+            } catch (e) {}
+            throw new Error(errorMsg);
         }
     } catch (err) {
         console.error("PDF preview generation error:", err);
-        alert("要望書PDFのプレビュー作成に失敗しました。入力内容を確認の上、再試行してください。");
+        alert(`要望書PDFのプレビュー作成に失敗しました。\n詳細: ${err.message || '入力内容を確認の上、再試行してください。'}`);
         pdfLoadingOverlay.classList.add('hidden');
     }
 }

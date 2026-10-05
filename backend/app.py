@@ -7,7 +7,7 @@ import datetime
 # backendディレクトリをインポート検索パスに追加
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from database import init_db, save_spot, get_all_spots, find_closest_jurisdiction
+from database import init_db, save_spot, get_all_spots, find_closest_jurisdiction, find_closest_jurisdictions
 from pdf_generator import generate_request_pdf
 
 # Flaskアプリケーションの初期設定
@@ -91,27 +91,34 @@ def api_save_spot():
 @app.route('/api/resolve-jurisdiction', methods=['POST'])
 def api_resolve_jurisdiction():
     """
-    送信された緯度経度から、最寄りの管轄（区役所や警察署）を割り出して返却するAPI。
+    送信された緯度経度および住所から、最寄りの管轄（区役所や警察署）と候補一覧を割り出して返却するAPI。
     """
     try:
         data = request.get_json() or {}
         lat = float(data.get('latitude', 0))
         lng = float(data.get('longitude', 0))
         target_type = data.get('target_type', 'mayor')
+        address = data.get('address', '')
         
-        # 最も近い距離にある対象種別の管轄窓口を取得
-        jurisdiction = find_closest_jurisdiction(lat, lng, target_type)
-        if jurisdiction:
-            return jsonify(jurisdiction), 200
+        # 住所推定と距離計算を統合した窓口検索
+        res = find_closest_jurisdictions(lat, lng, target_type, address=address)
+        primary = res.get('primary')
+        candidates = res.get('candidates', [])
+        
+        if primary:
+            response_data = dict(primary)
+            response_data['candidates'] = candidates
+            return jsonify(response_data), 200
         else:
             # データベースから取得できなかった場合のフォールバックデータ
             fallback = {
-                'name': '管轄警察署・自治体窓口 (検証中)',
-                'address': '最寄りの窓口の情報を取得できませんでした。手動で検索してください。',
+                'name': '管轄警察署・自治体窓口',
+                'address': address if address else '最寄りの窓口の情報を取得できませんでした。手動で設定してください。',
                 'phone': 'N/A',
                 'online_url': '#',
                 'latitude': lat,
-                'longitude': lng
+                'longitude': lng,
+                'candidates': []
             }
             return jsonify(fallback), 200
     except Exception as e:
