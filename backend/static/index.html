@@ -56,7 +56,30 @@
                     <span class="step-label">完了・案内</span>
                 </div>
             </div>
+
+            <!-- List Toggle Button -->
+            <div class="header-action-area">
+                <button type="button" class="btn-list-toggle" id="btn-toggle-spots-list" title="作成済み要望書一覧を表示">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px; height:14px;">
+                        <line x1="8" y1="6" x2="21" y2="6"/>
+                        <line x1="8" y1="12" x2="21" y2="12"/>
+                        <line x1="8" y1="18" x2="21" y2="18"/>
+                        <line x1="3" y1="6" x2="3.01" y2="6"/>
+                        <line x1="3" y1="12" x2="3.01" y2="12"/>
+                        <line x1="3" y1="18" x2="3.01" y2="18"/>
+                    </svg>
+                    作成済み一覧 <span class="spots-count-badge" id="spots-count-badge">0</span>
+                </button>
+            </div>
         </header>
+
+        <!-- Edit Mode Banner -->
+        <div class="edit-banner hidden" id="edit-banner">
+            <div class="edit-banner-content">
+                <span>✏️ <strong>作成済み要望書 (#<span id="edit-spot-id"></span>) を編集中</strong></span>
+                <button type="button" class="btn-cancel-edit" id="btn-cancel-edit">新規作成に戻る</button>
+            </div>
+        </div>
 
         <!-- Main Body Grid -->
         <main class="app-main">
@@ -439,6 +462,7 @@
                 <button type="button" class="btn btn-success" id="btn-save-blur" style="padding: 8px 16px; font-size: 13px;">完了して適用</button>
             </div>
         </div>
+    </div>
 
     <!-- Jurisdiction Selector Modal -->
     <div class="modal-overlay hidden" id="modal-jurisdiction">
@@ -488,6 +512,30 @@
             <div class="modal-actions" style="margin-top: 16px; display: flex; justify-content: flex-end; gap: 10px;">
                 <button type="button" class="btn btn-secondary" id="btn-cancel-jurisdiction" style="padding: 8px 16px; font-size: 13px;">キャンセル</button>
                 <button type="button" class="btn btn-primary" id="btn-apply-jurisdiction" style="padding: 8px 16px; font-size: 13px;">この窓口を決定</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Spots List Modal (作成済み要望書一覧) -->
+    <div class="modal-overlay hidden" id="modal-spots-list">
+        <div class="modal-card glass-card" style="max-width: 600px; max-height: 90vh; display: flex; flex-direction: column;">
+            <div class="modal-header">
+                <h3>📋 作成済み要望書一覧</h3>
+                <button type="button" class="modal-close" id="btn-close-spots-list">&times;</button>
+            </div>
+            
+            <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 8px;">
+                過去に作成した危険箇所要望書の一覧です。選択して内容の確認や再編集、PDFの再ダウンロードが可能です。
+            </p>
+
+            <div class="modal-scroll-body" style="overflow-y: auto; padding-right: 4px; flex: 1;">
+                <div id="spots-list-container" style="display: flex; flex-direction: column; gap: 12px;">
+                    <!-- JSで動的に過去の投稿カードを描画 -->
+                </div>
+            </div>
+
+            <div class="modal-actions" style="margin-top: 14px; display: flex; justify-content: flex-end;">
+                <button type="button" class="btn btn-secondary" id="btn-close-spots-list-bottom" style="padding: 8px 18px; font-size: 13px;">閉じる</button>
             </div>
         </div>
     </div>

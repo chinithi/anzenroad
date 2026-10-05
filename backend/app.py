@@ -7,7 +7,7 @@ import datetime
 # backendディレクトリをインポート検索パスに追加
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from database import init_db, save_spot, get_all_spots, find_closest_jurisdiction, find_closest_jurisdictions
+from database import init_db, save_spot, get_all_spots, find_closest_jurisdiction, find_closest_jurisdictions, get_spot_by_id, update_spot
 from pdf_generator import generate_request_pdf
 
 # Flaskアプリケーションの初期設定
@@ -78,13 +78,70 @@ def api_save_spot():
             'requester_name': data.get('requester_name', ''),
             'requester_address': data.get('requester_address', ''),
             'requester_phone': data.get('requester_phone', ''),
-            'photo_path': photo_path
+            'photo_path': photo_path,
+            'target_office_name': data.get('target_office_name', '')
         }
         
         # データベースにレコードを保存
         spot_id = save_spot(spot_data)
         return jsonify({'id': spot_id, 'message': 'Spot saved successfully'}), 201
         
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/spots/<int:spot_id>', methods=['GET'])
+def api_get_spot(spot_id):
+    """
+    指定されたIDの危険箇所情報を取得するAPI。再確認・編集時に使用。
+    """
+    try:
+        spot = get_spot_by_id(spot_id)
+        if spot:
+            return jsonify(spot), 200
+        else:
+            return jsonify({'error': 'Spot not found'}), 404
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/spots/<int:spot_id>', methods=['POST', 'PUT'])
+def api_update_spot_route(spot_id):
+    """
+    既存の危険箇所レポートを更新（再編集）するAPI。
+    """
+    try:
+        data = request.form.to_dict()
+        photo_path = None
+        if 'photo' in request.files:
+            file = request.files['photo']
+            if file.filename:
+                filename = f"edit_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{file.filename}"
+                save_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                file.save(save_path)
+                photo_path = save_path
+        elif data.get('photo_path'):
+            photo_path = data.get('photo_path')
+
+        latitude = float(data.get('latitude', 0))
+        longitude = float(data.get('longitude', 0))
+        danger_level = int(data.get('danger_level', 1))
+
+        spot_data = {
+            'latitude': latitude,
+            'longitude': longitude,
+            'address': data.get('address'),
+            'target_type': data.get('target_type', 'mayor'),
+            'danger_category': data.get('danger_category', 'other'),
+            'danger_level': danger_level,
+            'description': data.get('description', ''),
+            'requester_name': data.get('requester_name', ''),
+            'requester_address': data.get('requester_address', ''),
+            'requester_phone': data.get('requester_phone', ''),
+            'photo_path': photo_path,
+            'target_office_name': data.get('target_office_name', '')
+        }
+
+        update_spot(spot_id, spot_data)
+        return jsonify({'id': spot_id, 'message': 'Spot updated successfully'}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

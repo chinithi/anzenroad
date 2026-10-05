@@ -21,6 +21,18 @@ const manualJName = document.getElementById('manual-j-name');
 const manualJAddress = document.getElementById('manual-j-address');
 const manualJPhone = document.getElementById('manual-j-phone');
 
+// Spots List & Edit State Elements
+let editingSpotId = null;
+const btnToggleSpotsList = document.getElementById('btn-toggle-spots-list');
+const spotsCountBadge = document.getElementById('spots-count-badge');
+const modalSpotsList = document.getElementById('modal-spots-list');
+const btnCloseSpotsList = document.getElementById('btn-close-spots-list');
+const btnCloseSpotsListBottom = document.getElementById('btn-close-spots-list-bottom');
+const spotsListContainer = document.getElementById('spots-list-container');
+const editBanner = document.getElementById('edit-banner');
+const editSpotIdSpan = document.getElementById('edit-spot-id');
+const btnCancelEdit = document.getElementById('btn-cancel-edit');
+
 // DOM Elements
 const step1 = document.getElementById('step-1');
 const step2 = document.getElementById('step-2');
@@ -495,6 +507,12 @@ function setupEventListeners() {
     if (btnCancelJurisdiction) btnCancelJurisdiction.addEventListener('click', closeJurisdictionModal);
     if (btnApplyJurisdiction) btnApplyJurisdiction.addEventListener('click', applyJurisdictionSelection);
 
+    // Spots List Modal & Edit Events
+    if (btnToggleSpotsList) btnToggleSpotsList.addEventListener('click', openSpotsListModal);
+    if (btnCloseSpotsList) btnCloseSpotsList.addEventListener('click', closeSpotsListModal);
+    if (btnCloseSpotsListBottom) btnCloseSpotsListBottom.addEventListener('click', closeSpotsListModal);
+    if (btnCancelEdit) btnCancelEdit.addEventListener('click', cancelEditMode);
+
     // Final download button trigger
     btnDownloadPdfFinal.addEventListener('click', () => {
         if (generatedPdfBlobUrl) {
@@ -508,6 +526,9 @@ function setupEventListeners() {
             alert("PDFが生成されていません。プレビューを実行してください。");
         }
     });
+
+    // 初回に登録済み要望書件数を取得
+    fetchSpotsCount();
 }
 
 // 3. Photo Handling
@@ -599,7 +620,13 @@ function updateJurisdictionPreviewUI() {
 }
 
 function openJurisdictionModal() {
-    if (!currentClosestJurisdiction) return;
+    if (!currentClosestJurisdiction) {
+        currentClosestJurisdiction = {
+            name: document.getElementById('j-name').textContent || '管轄窓口',
+            address: document.getElementById('j-address').textContent || '',
+            phone: ''
+        };
+    }
     
     // 現在の選択情報を手動入力フォームにセット
     manualJName.value = currentClosestJurisdiction.name || '';
@@ -610,6 +637,11 @@ function openJurisdictionModal() {
     renderJurisdictionCandidates();
     
     modalJurisdiction.classList.remove('hidden');
+    
+    // 手動入力欄にフォーカスを当てやすいように少し遅延
+    setTimeout(() => {
+        if (manualJName) manualJName.focus();
+    }, 100);
 }
 
 function closeJurisdictionModal() {
@@ -632,7 +664,7 @@ function renderJurisdictionCandidates() {
         }
         
         const isRec = cand.is_inferred || idx === 0;
-        const badgeText = isRec ? '★ 住所から自動推定' : (cand.type === 'police' ? '警察署' : '自治体');
+        const badgeText = isRec ? '★ 住所から自動判定' : (cand.type === 'police' ? '警察署' : '自治体');
         const badgeClass = isRec ? 'candidate-badge recommended' : 'candidate-badge';
         
         card.innerHTML = `
@@ -646,14 +678,17 @@ function renderJurisdictionCandidates() {
             </div>
         `;
         
-        card.addEventListener('click', () => {
+        // タッチおよびクリック両方に対応
+        const selectHandler = (e) => {
+            e.preventDefault();
             document.querySelectorAll('.candidate-card').forEach(c => c.classList.remove('active'));
             card.classList.add('active');
             
             manualJName.value = cand.name;
             manualJAddress.value = cand.address || '';
             manualJPhone.value = cand.phone || '';
-        });
+        };
+        card.addEventListener('click', selectHandler);
         
         jurisdictionCandidatesList.appendChild(card);
     });
@@ -679,6 +714,198 @@ function applyJurisdictionSelection() {
     
     updateJurisdictionPreviewUI();
     closeJurisdictionModal();
+}
+
+// -------------------------------------------------------------------------
+// 作成済み要望書一覧（リスト化） & 再確認・編集機能
+// -------------------------------------------------------------------------
+async function fetchSpotsCount() {
+    try {
+        const response = await fetch('/api/spots');
+        if (response.ok) {
+            const spots = await response.json();
+            if (spotsCountBadge) {
+                spotsCountBadge.textContent = spots.length || 0;
+            }
+        }
+    } catch (e) {
+        console.error("Failed to fetch spots count:", e);
+    }
+}
+
+async function openSpotsListModal() {
+    modalSpotsList.classList.remove('hidden');
+    spotsListContainer.innerHTML = '<div style="text-align:center; padding: 24px; color: var(--text-secondary);"><div class="spinner" style="margin: 0 auto 10px;"></div>要望書一覧を読み込み中...</div>';
+    
+    try {
+        const response = await fetch('/api/spots');
+        if (!response.ok) throw new Error("一覧取得に失敗しました");
+        const spots = await response.json();
+        
+        spotsListContainer.innerHTML = '';
+        if (!spots || spots.length === 0) {
+            spotsListContainer.innerHTML = '<div style="text-align:center; padding: 32px 16px; color: var(--text-secondary);">まだ作成された要望書がありません。<br>地図上で危険箇所を選択して要望書を作成してみましょう！</div>';
+            return;
+        }
+        
+        spots.forEach(spot => {
+            const card = document.createElement('div');
+            card.className = 'spot-item-card';
+            
+            const categoryNames = {
+                'poor_visibility': '見通し不良',
+                'heavy_traffic': '交通量過多',
+                'speeding': 'スピード超過',
+                'no_sidewalk': '歩道未整備',
+                'no_light': '信号・横断歩道なし',
+                'other': 'その他'
+            };
+            const catLabel = categoryNames[spot.danger_category] || spot.danger_category || '要望';
+            const stars = '★'.repeat(spot.danger_level || 3);
+            const dateStr = spot.created_at ? spot.created_at.substring(0, 16) : '';
+            const office = spot.target_office_name || (spot.target_type === 'police' ? '管轄警察署' : '自治体窓口');
+
+            card.innerHTML = `
+                <div class="spot-item-header">
+                    <span class="spot-item-title">📍 ${spot.address || '指定位置'}</span>
+                    <span class="candidate-badge ${spot.target_type === 'police' ? 'recommended' : ''}">
+                        ${spot.target_type === 'police' ? '警察署' : '自治体'}
+                    </span>
+                </div>
+                <div class="spot-item-meta">
+                    <span>🏢 ${office}</span>
+                    <span>⚠️ ${catLabel}</span>
+                    <span style="color: #f59e0b;">${stars}</span>
+                    ${dateStr ? `<span>🕒 ${dateStr}</span>` : ''}
+                </div>
+                ${spot.description ? `<div class="spot-item-desc">${escapeHtml(spot.description)}</div>` : ''}
+                <div class="spot-item-footer">
+                    <button type="button" class="btn-spot-edit" data-id="${spot.id}">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px; height:12px;">
+                            <path d="M12 20h9"/>
+                            <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+                        </svg>
+                        確認・編集する
+                    </button>
+                </div>
+            `;
+            
+            const btnEdit = card.querySelector('.btn-spot-edit');
+            btnEdit.addEventListener('click', (e) => {
+                e.stopPropagation();
+                loadSpotForEditing(spot.id);
+            });
+            
+            spotsListContainer.appendChild(card);
+        });
+    } catch (err) {
+        console.error("Spots fetch error:", err);
+        spotsListContainer.innerHTML = `<div style="color:var(--danger); padding:16px;">一覧の取得に失敗しました: ${err.message}</div>`;
+    }
+}
+
+function closeSpotsListModal() {
+    modalSpotsList.classList.add('hidden');
+}
+
+async function loadSpotForEditing(spotId) {
+    try {
+        const response = await fetch(`/api/spots/${spotId}`);
+        if (!response.ok) throw new Error("要望書データの取得に失敗しました");
+        const spot = await response.json();
+        
+        editingSpotId = spot.id;
+        
+        // 編集中バナーを表示
+        if (editSpotIdSpan) editSpotIdSpan.textContent = spot.id;
+        if (editBanner) editBanner.classList.remove('hidden');
+        
+        // 位置・住所の復元
+        if (spot.latitude && spot.longitude) {
+            selectedLatLng = L.latLng(spot.latitude, spot.longitude);
+            if (marker) {
+                marker.setLatLng(selectedLatLng);
+            } else {
+                marker = L.marker(selectedLatLng, { icon: redPinIcon, draggable: true }).addTo(map);
+                marker.on('dragend', (e) => {
+                    const pos = e.target.getLatLng();
+                    updateSelectedLocation(pos.lat, pos.lng);
+                });
+            }
+            map.setView(selectedLatLng, 16);
+            coordinatesInfo.textContent = `緯度: ${spot.latitude.toFixed(6)} / 経度: ${spot.longitude.toFixed(6)}`;
+        }
+        
+        selectedAddress = spot.address || '';
+        displayAddress.value = selectedAddress;
+        btnGotoStep2.disabled = false;
+        
+        // 状況入力（STEP 2）の復元
+        if (spot.danger_category) {
+            document.getElementById('danger_category').value = spot.danger_category;
+        }
+        if (spot.danger_level) {
+            const starRadio = document.getElementById(`star${spot.danger_level}`);
+            if (starRadio) starRadio.checked = true;
+        }
+        document.getElementById('description').value = spot.description || '';
+        
+        // 提出先種別の復元
+        const radioTarget = document.querySelector(`input[name="target_type"][value="${spot.target_type || 'mayor'}"]`);
+        if (radioTarget) radioTarget.checked = true;
+        
+        // 要望者連絡先（STEP 3）の復元
+        if (spot.requester_name) document.getElementById('requester_name').value = spot.requester_name;
+        if (spot.requester_phone) document.getElementById('requester_phone').value = spot.requester_phone;
+        if (spot.requester_address) document.getElementById('requester_address').value = spot.requester_address;
+        
+        // 窓口情報の復元
+        if (spot.target_office_name) {
+            currentClosestJurisdiction = {
+                name: spot.target_office_name,
+                address: spot.address || '',
+                phone: ''
+            };
+            updateJurisdictionPreviewUI();
+        } else {
+            resolveJurisdiction();
+        }
+        
+        // 既存写真の復元
+        if (spot.photo_path) {
+            const photoFilename = spot.photo_path.split(/[\\/]/).pop();
+            previewImg.src = `/uploads/${photoFilename}`;
+            dropzonePrompt.classList.add('hidden');
+            dropzonePreview.classList.remove('hidden');
+            btnTriggerBlur.classList.remove('hidden');
+        } else {
+            removePhoto();
+        }
+        
+        // モーダルを閉じ、STEP 1に移動
+        closeSpotsListModal();
+        goToStep(1);
+        
+        alert(`要望書 #${spot.id} のデータを読み込みました。\n内容を確認・修正し、STEP 3でPDFを再生成してください。`);
+        
+    } catch (err) {
+        console.error("Load spot for edit error:", err);
+        alert(`データの読み込みに失敗しました: ${err.message}`);
+    }
+}
+
+function cancelEditMode() {
+    editingSpotId = null;
+    if (editBanner) editBanner.classList.add('hidden');
+}
+
+function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;')
+              .replace(/"/g, '&quot;')
+              .replace(/'/g, '&#039;');
 }
 
 // 5. PDF generation & view
@@ -790,19 +1017,27 @@ async function saveSpotAndFinalize() {
     formData.append('requester_address', document.getElementById('requester_address').value);
     formData.append('requester_phone', document.getElementById('requester_phone').value);
     
+    // 宛先窓口名を含める
+    if (currentClosestJurisdiction && currentClosestJurisdiction.name) {
+        formData.append('target_office_name', currentClosestJurisdiction.name);
+    }
+    
     if (uploadedPhotoFile) {
         formData.append('photo', uploadedPhotoFile);
     }
     
     try {
-        const response = await fetch('/api/spots', {
+        const endpoint = editingSpotId ? `/api/spots/${editingSpotId}` : '/api/spots';
+        const response = await fetch(endpoint, {
             method: 'POST',
             body: formData
         });
         
         if (response.ok) {
-            // Reload spots on map
+            // Reload spots on map and count badge
             loadExistingSpots();
+            fetchSpotsCount();
+            cancelEditMode();
             // Proceed to success step
             goToStep(4);
         } else {

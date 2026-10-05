@@ -169,7 +169,7 @@ def generate_static_map(lat, lng, zoom=17, size=(500, 300)):
     3. 指定サイズ(size)に合わせて中心付近を切り抜いて保存。
     """
     os.makedirs(os.path.join(DATA_DIR, 'maps'), exist_ok=True)
-    map_image_path = os.path.join(DATA_DIR, 'maps', f'map_{lat}_{lng}_{zoom}.jpg')
+    map_image_path = os.path.join(DATA_DIR, 'maps', f'map_gsi_{lat}_{lng}_{zoom}.jpg')
     
     # 既に同じ座標の地図画像が生成済みの場合はキャッシュを返却
     if os.path.exists(map_image_path):
@@ -181,11 +181,11 @@ def generate_static_map(lat, lng, zoom=17, size=(500, 300)):
         
         # 3x3タイルの結合用キャンバスをPILで作成
         tile_width, tile_height = 256, 256
-        stitched = Image.new('RGB', (tile_width * 3, tile_height * 3))
+        stitched = Image.new('RGB', (tile_width * 3, tile_height * 3), '#ffffff')
         
-        # OSMタイルの利用規約に準拠したUser-Agentヘッダーを設定
+        # 国土地理院タイルおよびOpenStreetMap用ヘッダー
         headers = {
-            'User-Agent': 'AnzenRoad/1.0 (Local Civic-Tech Request Form App; Contact: anzenroad@example.com)'
+            'User-Agent': 'AnzenRoad/1.0 (Civic-Tech Request Form App; Contact: anzenroad@example.com)'
         }
         
         # 周辺9枚のタイルを巡回してダウンロード・結合
@@ -193,17 +193,30 @@ def generate_static_map(lat, lng, zoom=17, size=(500, 300)):
             for dy in range(-1, 2):
                 tx = cx + dx
                 ty = cy + dy
-                url = f"https://tile.openstreetmap.org/{zoom}/{tx}/{ty}.png"
+                # 国土地理院（標準地図）タイルURL（公的機関によるオープンデータ・403制限なし・日本語表記高精度）
+                gsi_url = f"https://cyberjapandata.gsi.go.jp/xyz/std/{zoom}/{tx}/{ty}.png"
+                osm_url = f"https://tile.openstreetmap.org/{zoom}/{tx}/{ty}.png"
                 
+                tile = None
+                # まず国土地理院タイルを優先取得
                 try:
-                    r = requests.get(url, headers=headers, timeout=5)
+                    r = requests.get(gsi_url, headers=headers, timeout=5)
                     if r.status_code == 200:
-                        tile = open_image_from_bytes(r.content)
-                    else:
-                        tile = Image.new('RGB', (tile_width, tile_height), '#f1f1f1')
+                        tile = open_image_from_bytes(r.content).convert('RGB')
                 except Exception as e:
-                    print(f"Failed to fetch tile {tx},{ty}: {e}")
-                    tile = Image.new('RGB', (tile_width, tile_height), '#f1f1f1')
+                    print(f"GSI tile fetch failed {tx},{ty}: {e}")
+                
+                # 万が一国土地理院で取れなかった場合はOSMを試行
+                if not tile:
+                    try:
+                        r = requests.get(osm_url, headers=headers, timeout=5)
+                        if r.status_code == 200:
+                            tile = open_image_from_bytes(r.content).convert('RGB')
+                    except Exception as e:
+                        pass
+                
+                if not tile:
+                    tile = Image.new('RGB', (tile_width, tile_height), '#f3f4f6')
                 
                 # 正しいグリッド位置へタイルを貼り付け
                 stitched.paste(tile, ((dx + 1) * tile_width, (dy + 1) * tile_height))

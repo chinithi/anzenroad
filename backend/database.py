@@ -41,9 +41,16 @@ def init_db():
             requester_address TEXT,       -- 要望者住所
             requester_phone TEXT,         -- 要望者電話番号
             photo_path TEXT,              -- 添付写真の保存サーバーパス
+            target_office_name TEXT,      -- 宛先窓口名
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP -- 登録日時
         )
     ''')
+    
+    # 既存テーブルへのカラム追加対応（target_office_name）
+    try:
+        cursor.execute("ALTER TABLE dangerous_spots ADD COLUMN target_office_name TEXT")
+    except Exception:
+        pass
     
     # 2. 管轄マスターテーブルの作成
     cursor.execute('''
@@ -232,18 +239,70 @@ def save_spot(data):
         INSERT INTO dangerous_spots (
             latitude, longitude, address, target_type, danger_category, 
             danger_level, description, requester_name, requester_address, 
-            requester_phone, photo_path
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            requester_phone, photo_path, target_office_name
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', (
         data['latitude'], data['longitude'], data.get('address'), data['target_type'],
         data['danger_category'], data['danger_level'], data.get('description'),
         data.get('requester_name'), data.get('requester_address'), data.get('requester_phone'),
-        data.get('photo_path')
+        data.get('photo_path'), data.get('target_office_name')
     ))
     conn.commit()
     spot_id = cursor.lastrowid
     conn.close()
     return spot_id
+
+def update_spot(spot_id, data):
+    """
+    既存の危険箇所投稿レポートの情報を更新（再編集）します。
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    if 'photo_path' in data and data['photo_path']:
+        cursor.execute('''
+            UPDATE dangerous_spots SET
+                latitude = ?, longitude = ?, address = ?, target_type = ?,
+                danger_category = ?, danger_level = ?, description = ?,
+                requester_name = ?, requester_address = ?, requester_phone = ?,
+                photo_path = ?, target_office_name = ?
+            WHERE id = ?
+        ''', (
+            data['latitude'], data['longitude'], data.get('address'), data['target_type'],
+            data['danger_category'], data['danger_level'], data.get('description'),
+            data.get('requester_name'), data.get('requester_address'), data.get('requester_phone'),
+            data.get('photo_path'), data.get('target_office_name'), spot_id
+        ))
+    else:
+        cursor.execute('''
+            UPDATE dangerous_spots SET
+                latitude = ?, longitude = ?, address = ?, target_type = ?,
+                danger_category = ?, danger_level = ?, description = ?,
+                requester_name = ?, requester_address = ?, requester_phone = ?,
+                target_office_name = ?
+            WHERE id = ?
+        ''', (
+            data['latitude'], data['longitude'], data.get('address'), data['target_type'],
+            data['danger_category'], data['danger_level'], data.get('description'),
+            data.get('requester_name'), data.get('requester_address'), data.get('requester_phone'),
+            data.get('target_office_name'), spot_id
+        ))
+    conn.commit()
+    conn.close()
+    return True
+
+def get_spot_by_id(spot_id):
+    """
+    指定されたIDの危険箇所情報を1件取得します。
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM dangerous_spots WHERE id = ?', (spot_id,))
+    row = cursor.fetchone()
+    conn.close()
+    if row:
+        return dict(row)
+    return None
 
 def get_all_spots():
     """
